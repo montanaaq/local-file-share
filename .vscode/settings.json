@@ -1,0 +1,12 @@
+{
+  "[csharp]": {
+    "editor.defaultFormatter": "csharpier.csharpier-vscode"
+  },
+  "[xml]": {
+    "editor.defaultFormatter": "dabbinavo.xamlstyler"
+  },
+  "[axaml]": {
+    "editor.defaultFormatter": "dabbinavo.xamlstyler"
+  },
+  "dotnet.defaultSolution": "LocalFileShare.slnx",
+}
