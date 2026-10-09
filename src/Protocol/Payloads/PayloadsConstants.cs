@@ -1,6 +1,6 @@
 namespace Protocol;
 
-internal static class PayloadsConstants
+public static class PayloadsConstants
 {
     public const int PeerIdSize = 2;
     public const int FileIdSize = 16;
