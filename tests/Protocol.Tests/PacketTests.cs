@@ -1,7 +1,72 @@
-﻿namespace Protocol.Tests;
+﻿using System.Buffers.Binary;
+using System.IO.Hashing;
+
+namespace Protocol.Tests;
 
 public class PacketTests
 {
+    [Theory]
+    [InlineData(0x01)]
+    [InlineData(0x04)]
+    [InlineData(0x10)]
+    [InlineData(0xFF)]
+    public void Packet_RejectsRemovedAndUnknownMessageTypes(byte type)
+    {
+        Assert.Throws<ArgumentException>(() => new Packet((MessageType)type, 0, []).Serialize());
+
+        var bytes = new Packet(MessageType.Ack, 0, []).Serialize();
+        bytes[1] = type;
+        bytes.AsSpan(8, 4).Clear();
+        BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(8), Crc32.HashToUInt32(bytes));
+        Assert.Null(Packet.Parse(bytes));
+    }
+
+    [Fact]
+    public void Serialize_Throws_WhenPayloadExceedsLimit()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new Packet(MessageType.Chunk, 0, new byte[1061]).Serialize()
+        );
+    }
+
+    [Fact]
+    public void Parse_ReturnsNull_WhenPayloadExceedsLimitWithValidCrc()
+    {
+        var bytes = new byte[12 + 1061];
+        bytes[0] = 1;
+        bytes[1] = (byte)MessageType.Chunk;
+        BinaryPrimitives.WriteUInt16BigEndian(bytes.AsSpan(6), 1061);
+        BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(8), Crc32.HashToUInt32(bytes));
+
+        Assert.Null(Packet.Parse(bytes));
+    }
+
+    [Fact]
+    public void Parse_ReturnsNull_WhenPayloadIsCorrupted()
+    {
+        var bytes = new Packet(MessageType.Clipboard, 0, [1, 2, 3]).Serialize();
+        bytes[^1] ^= 0xFF;
+        Assert.Null(Packet.Parse(bytes));
+    }
+
+    [Fact]
+    public void Parse_ReturnsNull_WhenVersionIsInvalidWithValidCrc()
+    {
+        var bytes = new Packet(MessageType.Ack, 0, []).Serialize();
+        bytes[0] = 2;
+        bytes.AsSpan(8, 4).Clear();
+        BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(8), Crc32.HashToUInt32(bytes));
+        Assert.Null(Packet.Parse(bytes));
+    }
+
+    [Fact]
+    public void Parse_ReturnsNull_WhenLengthDoesNotMatch()
+    {
+        var bytes = new Packet(MessageType.Clipboard, 0, [1, 2, 3]).Serialize();
+        Assert.Null(Packet.Parse(bytes.AsSpan(0, bytes.Length - 1)));
+        Assert.Null(Packet.Parse([.. bytes, 0]));
+    }
+
     public static IEnumerable<object[]> AllMessageTypes() =>
         Enum.GetValues<MessageType>().Select(t => new object[] { t });
 
@@ -34,13 +99,17 @@ public class PacketTests
     }
 
     [Fact]
-    public void Parse_ReturnsPacket_WhenPayloadIsEmpty()
+    public void Parse_ReturnsPacket_WhenHeartbeatContainsDeviceId()
     {
-        var originalPacket = new Packet(MessageType.Heartbeat, 42, []);
+        var originalPacket = new Packet(
+            MessageType.Heartbeat,
+            42,
+            Guid.NewGuid().ToByteArray(true)
+        );
         var parsedPacket = Packet.Parse(originalPacket.Serialize());
 
         Assert.NotNull(parsedPacket);
-        Assert.Empty(parsedPacket.Payload);
+        Assert.Equal(originalPacket.Payload, parsedPacket.Payload);
         Assert.Equal(originalPacket.Type, parsedPacket.Type);
     }
 

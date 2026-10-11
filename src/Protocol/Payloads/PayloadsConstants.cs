@@ -2,7 +2,9 @@ namespace Protocol;
 
 public static class PayloadsConstants
 {
-    public const int PeerIdSize = 2;
+    public const int DeviceIdSize = 16;
+    public const int AckedSeqOffset = DeviceIdSize;
+    public const int AckSize = AckedSeqOffset + sizeof(uint);
     public const int FileIdSize = 16;
     public const int FileSizeSize = 8;
     public const int Sha256Size = 32;
@@ -13,7 +15,7 @@ public static class PayloadsConstants
     public const int IndexOffset = FileIdOffset + FileIdSize;
     public const int ChunkDataOffset = IndexOffset + IndexSize;
 
-    public const int FileIdOffset = PeerIdSize;
+    public const int FileIdOffset = DeviceIdSize;
     public const int FileSizeOffset = FileIdOffset + FileIdSize;
     public const int Sha256Offset = FileSizeOffset + FileSizeSize;
     public const int NameLengthOffset = Sha256Offset + Sha256Size;

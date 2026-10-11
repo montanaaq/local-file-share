@@ -7,10 +7,14 @@ namespace Protocol;
 public sealed record Packet(MessageType Type, uint Seq, byte[] Payload)
 {
     public const int HeaderSize = 12; // version(1) type(1) seq(4) length(2) crc(4)
-    public const int MaxPayloadSize = 1100; // fileId(16) index(4) chunk(1024)
+    public const int MaxPayloadSize =
+        PayloadsConstants.ChunkDataOffset + ProtocolConstants.ChunkSize;
 
     public byte[] Serialize()
     {
+        if (!Enum.IsDefined(Type))
+            throw new ArgumentException("Unknown message type", nameof(Type));
+
         if (Payload.Length > MaxPayloadSize)
             throw new ArgumentException(
                 $"Payload too large: {Payload.Length} > {MaxPayloadSize}",
@@ -32,7 +36,12 @@ public sealed record Packet(MessageType Type, uint Seq, byte[] Payload)
 
     public static Packet? Parse(ReadOnlySpan<byte> data)
     {
-        if (data.Length < HeaderSize || data[0] != 1)
+        if (
+            data.Length < HeaderSize
+            || data.Length > HeaderSize + MaxPayloadSize
+            || data[0] != 1
+            || !Enum.IsDefined((MessageType)data[1])
+        )
             return null;
 
         if (
@@ -54,7 +63,7 @@ public sealed record Packet(MessageType Type, uint Seq, byte[] Payload)
     private static uint Crc(ReadOnlySpan<byte> data)
     {
         var copy = data.ToArray();
-        copy.AsSpan(8, 4).Clear();
+        copy.AsSpan(PacketOffsets.CrcOffset, sizeof(uint)).Clear();
         return Crc32.HashToUInt32(copy);
     }
 }

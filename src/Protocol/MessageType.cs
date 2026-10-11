@@ -2,12 +2,10 @@ namespace Protocol;
 
 public enum MessageType
 {
-    Hello = 0x01,
     Heartbeat = 0x02,
     Ack = 0x03,
-    Error = 0x04,
-
-    PeerList = 0x10,
+    Discover = 0x05,
+    PeerInfo = 0x06,
 
     FileOffer = 0x20,
     FileAnswer = 0x21,

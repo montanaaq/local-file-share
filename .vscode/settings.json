@@ -9,4 +9,8 @@
     "editor.defaultFormatter": "dabbinavo.xamlstyler"
   },
   "dotnet.defaultSolution": "LocalFileShare.slnx",
+  "cSpell.words": [
+    "Acked",
+    "Avalonia"
+  ],
 }
