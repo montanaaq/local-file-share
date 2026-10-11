@@ -515,4 +515,66 @@ public class PayloadsTests
 
         Assert.Null(Payloads.DecodeFileResult(payload));
     }
+
+    [Theory]
+    [InlineData("Hi", "4869")]
+    [InlineData("", "")]
+    [InlineData("Привет", "D09FD180D0B8D0B2D0B5D182")]
+    public void EncodeDecodeClipboard_ProducesExpectedBytesAndFields(string text, string textHex)
+    {
+        var deviceId = Guid.Parse("00112233445566778899AABBCCDDEEFF");
+        var expected = Convert.FromHexString("00112233445566778899AABBCCDDEEFF" + textHex);
+
+        var encoded = Payloads.EncodeClipboard(deviceId, text);
+
+        Assert.Equal(expected, encoded);
+
+        var decoded = Payloads.DecodeClipboard(expected);
+
+        Assert.NotNull(decoded);
+        Assert.Equal(deviceId, decoded.Value.DeviceId);
+        Assert.Equal(text, decoded.Value.Text);
+    }
+
+    [Fact]
+    public void Clipboard_UsesUtf8ByteCountForTextLimit()
+    {
+        var deviceId = Guid.NewGuid();
+        var text = new string('а', 500);
+
+        var encoded = Payloads.EncodeClipboard(deviceId, text);
+        var decoded = Payloads.DecodeClipboard(encoded);
+
+        Assert.Equal(1016, encoded.Length);
+        Assert.NotNull(decoded);
+        Assert.Equal(deviceId, decoded.Value.DeviceId);
+        Assert.Equal(text, decoded.Value.Text);
+
+        Assert.Throws<ArgumentException>(() =>
+            Payloads.EncodeClipboard(deviceId, text + "a")
+        );
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(15)]
+    [InlineData(1017)]
+    public void DecodeClipboard_ReturnsNull_WhenLengthIsInvalid(int length)
+    {
+        byte[] payload = new byte[length];
+        var decoded = Payloads.DecodeClipboard(payload);
+
+        Assert.Null(decoded);
+    }
+
+    [Theory]
+    [InlineData("FF")]
+    [InlineData("D0")]
+    public void DecodeClipboard_ReturnsNull_WhenTextIsInvalidUtf8(string textHex)
+    {
+        var payload = Convert.FromHexString("00112233445566778899AABBCCDDEEFF" + textHex);
+        var decoded = Payloads.DecodeClipboard(payload);
+
+        Assert.Null(decoded);
+    }
 }

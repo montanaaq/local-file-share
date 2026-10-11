@@ -40,4 +40,8 @@ public static class PayloadsConstants
     // FILE RESULT
     public const int OkOffset = FileIdOffset + FileIdSize;
     public const int FileResultSize = OkOffset + sizeof(byte);
+
+    // CLIPBOARD
+    public const int MinClipboardPayloadSize = DeviceIdSize;
+    public const int MaxClipboardPayloadSize = DeviceIdSize + ProtocolConstants.ClipboardTextSize;
 }

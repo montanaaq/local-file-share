@@ -277,6 +277,46 @@ public static class Payloads
         return (deviceId, fileId, ok);
     }
 
+    public static byte[] EncodeClipboard(Guid deviceId, string text)
+    {
+        var textBytes = Utf8.GetBytes(text);
+        if (textBytes.Length > ProtocolConstants.ClipboardTextSize)
+        {
+            throw new ArgumentException(
+                "Clipboard text is too long, must be at most 1000 bytes",
+                nameof(text)
+            );
+        }
+        var buf = new byte[PayloadsConstants.DeviceIdSize + textBytes.Length];
+        deviceId.TryWriteBytes(buf, bigEndian: true, out _);
+        textBytes.CopyTo(buf, PayloadsConstants.DeviceIdSize);
+
+        return buf;
+    }
+
+    public static (Guid DeviceId, string Text)? DecodeClipboard(ReadOnlySpan<byte> payload)
+    {
+        if (
+            payload.Length < PayloadsConstants.MinClipboardPayloadSize
+            || payload.Length > PayloadsConstants.MaxClipboardPayloadSize
+        )
+            return null;
+
+        var deviceId = new Guid(payload[..PayloadsConstants.DeviceIdSize], bigEndian: true);
+
+        string text;
+        try
+        {
+            text = Utf8.GetString(payload[PayloadsConstants.DeviceIdSize..]);
+        }
+        catch (DecoderFallbackException)
+        {
+            return null;
+        }
+
+        return (deviceId, text);
+    }
+
     private static (Guid DeviceId, Guid FileId) GetFileIds(ReadOnlySpan<byte> payload)
     {
         return (
