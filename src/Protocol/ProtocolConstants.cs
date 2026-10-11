@@ -2,7 +2,7 @@ using System;
 
 namespace Protocol;
 
-public class ProtocolConstants
+public static class ProtocolConstants
 {
     public const ushort DefaultPort = 5000;
     public const int ChunkSize = 1024;

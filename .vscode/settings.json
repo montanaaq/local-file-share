@@ -11,6 +11,8 @@
   "dotnet.defaultSolution": "LocalFileShare.slnx",
   "cSpell.words": [
     "Acked",
-    "Avalonia"
+    "Acks",
+    "Avalonia",
+    "Dgram"
   ],
 }
