@@ -6,23 +6,53 @@ using System.Threading.Tasks;
 
 namespace Protocol;
 
-public sealed class UdpTransport(int localPort = 0) : IDisposable
+public sealed class UdpTransport : IDisposable
 {
-    private readonly UdpClient _client = new(localPort);
+    private readonly Socket _socket;
     private uint _nextSeq;
-    public int LocalPort => ((IPEndPoint)_client.Client.LocalEndPoint!).Port;
+
+    public UdpTransport(int localPort = 0)
+    {
+        _socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+        try
+        {
+            _socket.ExclusiveAddressUse = true;
+            _socket.EnableBroadcast = true;
+            _socket.Bind(new IPEndPoint(IPAddress.Any, localPort));
+        }
+        catch
+        {
+            _socket.Dispose();
+            throw;
+        }
+    }
+
+    public int LocalPort => ((IPEndPoint)_socket.LocalEndPoint!).Port;
 
     public uint NextSeq() => _nextSeq++;
 
     public async Task SendAsync(Packet packet, IPEndPoint remote)
     {
-        await _client.SendAsync(packet.Serialize(), remote);
+        var bytes = packet.Serialize();
+
+        await _socket.SendToAsync(bytes.AsMemory(), SocketFlags.None, remote);
     }
 
     public async Task<(Packet? Packet, IPEndPoint From)> ReceiveAsync(CancellationToken ct)
     {
-        var result = await _client.ReceiveAsync(ct);
-        return (Packet.Parse(result.Buffer), result.RemoteEndPoint);
+        byte[] buf = new byte[ushort.MaxValue];
+
+        var result = await _socket.ReceiveFromAsync(
+            buf.AsMemory(),
+            SocketFlags.None,
+            new IPEndPoint(IPAddress.Any, 0),
+            ct
+        );
+
+        var packet = Packet.Parse(buf.AsSpan(0, result.ReceivedBytes));
+        var from = (IPEndPoint)result.RemoteEndPoint;
+
+        return (packet, from);
     }
 
     // shortcut: ACK waits consume other messages; add a shared receive loop before app integration.
@@ -81,5 +111,5 @@ public sealed class UdpTransport(int localPort = 0) : IDisposable
         return ack is not null && ack.Value.DeviceId == remoteDeviceId && ack.Value.AckedSeq == seq;
     }
 
-    public void Dispose() => _client.Dispose();
+    public void Dispose() => _socket.Dispose();
 }
