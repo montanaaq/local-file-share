@@ -160,7 +160,7 @@ public static class Payloads
     public static byte[] EncodePeerInfo(Guid deviceId, string name)
     {
         var nameBytes = Utf8.GetBytes(name);
-        if (nameBytes.Length < 1 || nameBytes.Length > PayloadsConstants.MaxNameBytes)
+        if (nameBytes.Length is < 1 or > PayloadsConstants.MaxNameBytes)
         {
             throw new ArgumentException(
                 "Device name must contain 1 to 255 UTF-8 bytes",
@@ -316,6 +316,21 @@ public static class Payloads
 
         return (deviceId, text);
     }
+
+    public static bool IsValid(MessageType type, ReadOnlySpan<byte> payload) =>
+        type switch
+        {
+            MessageType.Ack => DecodeAck(payload) is not null,
+            MessageType.Heartbeat => DecodeHeartbeat(payload) is not null,
+            MessageType.Discover or MessageType.PeerInfo => DecodePeerInfo(payload) is not null,
+            MessageType.FileOffer => DecodeFileOffer(payload) is not null,
+            MessageType.FileAnswer => DecodeFileAnswer(payload) is not null,
+            MessageType.Chunk => DecodeChunk(payload) is not null,
+            MessageType.FileDone => DecodeFileDone(payload) is not null,
+            MessageType.FileResult => DecodeFileResult(payload) is not null,
+            MessageType.Clipboard => DecodeClipboard(payload) is not null,
+            _ => false,
+        };
 
     private static (Guid DeviceId, Guid FileId) GetFileIds(ReadOnlySpan<byte> payload)
     {
