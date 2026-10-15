@@ -12,6 +12,10 @@ public sealed class FileTransferService
 {
     private readonly Lock _stateLock = new();
 
+    private readonly Dictionary<
+        (Guid PeerDeviceId, Guid FileId),
+        TaskCompletionSource<bool>
+    > _pendingAnswers = [];
     private readonly Dictionary<(Guid PeerDeviceId, Guid FileId), FileTransfer> _transfers = [];
 
     public event Action<FileTransfer>? FileOffered;
@@ -85,6 +89,11 @@ public sealed class FileTransferService
             };
             var key = (fileTransfer.PeerDeviceId, fileTransfer.FileId);
             _transfers.Add(key, fileTransfer);
+
+            _pendingAnswers.Add(
+                key,
+                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously)
+            );
         }
 
         return fileTransfer;
@@ -119,6 +128,10 @@ public sealed class FileTransferService
         lock (_stateLock)
         {
             var key = (peerDeviceId, fileId);
+
+            if (state == TransferState.Failed && _pendingAnswers.Remove(key, out var completion))
+                completion.TrySetCanceled();
+
             _transfers[key].State = state;
         }
     }
@@ -161,9 +174,13 @@ public sealed class FileTransferService
             if (transfer.State != TransferState.WaitingForAnswer)
                 return false;
 
+            if (!_pendingAnswers.TryGetValue(key, out var completion))
+                return false;
+
             if (!answer.Value.Accepted)
             {
                 transfer.State = TransferState.Rejected;
+                completion.TrySetResult(false);
                 return true;
             }
 
@@ -172,7 +189,63 @@ public sealed class FileTransferService
 
             transfer.NextIndex = answer.Value.NextIndex;
             transfer.State = TransferState.Transferring;
+            completion.TrySetResult(true);
         }
         return true;
+    }
+
+    public async Task<bool> WaitForFileAnswerAsync(
+        Guid peerDeviceId,
+        Guid fileId,
+        CancellationToken ct
+    )
+    {
+        var key = (peerDeviceId, fileId);
+        TaskCompletionSource<bool> completion;
+
+        lock (_stateLock)
+        {
+            if (!_pendingAnswers.TryGetValue(key, out var value))
+                throw new InvalidOperationException("Completion not exists");
+
+            completion = value;
+        }
+        try
+        {
+            return await completion.Task.WaitAsync(ProtocolConstants.FileAnswerTimeout, ct);
+        }
+        catch (TimeoutException)
+        {
+            lock (_stateLock)
+            {
+                if (completion.Task.IsCompletedSuccessfully)
+                    return completion.Task.Result;
+
+                _transfers.TryGetValue(key, out var transfer);
+                transfer?.State = TransferState.Failed;
+                _pendingAnswers.Remove(key);
+            }
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            lock (_stateLock)
+            {
+                _transfers.TryGetValue(key, out var transfer);
+                if (transfer?.State == TransferState.WaitingForAnswer)
+                {
+                    transfer?.State = TransferState.Failed;
+                    _pendingAnswers.Remove(key);
+                }
+            }
+            throw;
+        }
+        finally
+        {
+            lock (_stateLock)
+            {
+                _pendingAnswers.Remove(key);
+            }
+        }
     }
 }

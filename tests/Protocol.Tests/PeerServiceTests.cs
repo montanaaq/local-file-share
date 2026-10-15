@@ -54,15 +54,33 @@ public class PeerServiceTests
         var deviceId = Guid.NewGuid();
         try
         {
-            await sender.SendAsync(new Packet(MessageType.PeerInfo, sender.NextSeq(),
-                Payloads.EncodePeerInfo(service.DeviceId, "Self")), target);
-            await sender.SendAsync(new Packet(MessageType.PeerInfo, sender.NextSeq(),
-                Payloads.EncodePeerInfo(deviceId, "Remote")), target);
+            await sender.SendAsync(
+                new Packet(
+                    MessageType.PeerInfo,
+                    sender.NextSeq(),
+                    Payloads.EncodePeerInfo(service.DeviceId, "Self")
+                ),
+                target
+            );
+            await sender.SendAsync(
+                new Packet(
+                    MessageType.PeerInfo,
+                    sender.NextSeq(),
+                    Payloads.EncodePeerInfo(deviceId, "Remote")
+                ),
+                target
+            );
             await WaitForPeerAsync(service, deviceId, PeerAvailability.Available, cts.Token);
             Assert.Equal(sender.LocalPort, Assert.Single(service.GetPeers()).Port);
 
-            await moved.SendAsync(new Packet(MessageType.PeerInfo, moved.NextSeq(),
-                Payloads.EncodePeerInfo(deviceId, "Renamed")), target);
+            await moved.SendAsync(
+                new Packet(
+                    MessageType.PeerInfo,
+                    moved.NextSeq(),
+                    Payloads.EncodePeerInfo(deviceId, "Renamed")
+                ),
+                target
+            );
             while (Assert.Single(service.GetPeers()).Port != moved.LocalPort)
                 await Task.Delay(20, cts.Token);
             Assert.Equal("Renamed", Assert.Single(service.GetPeers()).Name);
@@ -81,7 +99,11 @@ public class PeerServiceTests
         CancellationToken ct
     )
     {
-        while (!service.GetPeers().Any(peer => peer.DeviceId == deviceId && peer.Availability == availability))
+        while (
+            !service
+                .GetPeers()
+                .Any(peer => peer.DeviceId == deviceId && peer.Availability == availability)
+        )
             await Task.Delay(20, ct);
     }
 }

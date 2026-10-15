@@ -15,5 +15,6 @@ public static class ProtocolConstants
     public static readonly TimeSpan PeerTimeout = TimeSpan.FromSeconds(5);
     public static readonly TimeSpan DiscoverInterval = TimeSpan.FromSeconds(2);
     public static readonly TimeSpan ConnectionTimeout = TimeSpan.FromSeconds(3);
+    public static readonly TimeSpan FileAnswerTimeout = TimeSpan.FromSeconds(60);
     public const int ProcessedMessagesCapacity = 256;
 }

@@ -3,13 +3,6 @@ using System.Net;
 
 namespace Protocol;
 
-public enum PeerAvailability
-{
-    Available,
-    Unreachable,
-    Offline,
-}
-
 public sealed record Peer(
     Guid DeviceId,
     string Name,

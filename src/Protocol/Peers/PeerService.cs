@@ -109,14 +109,15 @@ public sealed class PeerService : IAsyncDisposable
             }
 
             await _transport.SendReliableAsync(packet, peer.Endpoint, peerDeviceId, ct);
-
-            return transfer;
         }
         catch
         {
             Transfers.SetState(peerDeviceId, transfer.FileId, TransferState.Failed);
             throw;
         }
+        await Transfers.WaitForFileAnswerAsync(peerDeviceId, transfer.FileId, ct);
+
+        return transfer;
     }
 
     public async Task<FileTransfer> AnswerFileOfferAsync(
