@@ -13,5 +13,7 @@ public static class ProtocolConstants
     public const int IncomingQueueCapacity = 256;
     public static readonly TimeSpan Heartbeat = TimeSpan.FromSeconds(1);
     public static readonly TimeSpan PeerTimeout = TimeSpan.FromSeconds(5);
+    public static readonly TimeSpan DiscoverInterval = TimeSpan.FromSeconds(2);
+    public static readonly TimeSpan ConnectionTimeout = TimeSpan.FromSeconds(3);
     public const int ProcessedMessagesCapacity = 256;
 }

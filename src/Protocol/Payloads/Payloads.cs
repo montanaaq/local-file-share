@@ -90,8 +90,7 @@ public static class Payloads
                 nameof(name)
             );
 
-        if (size > ProtocolConstants.MaxFileSize)
-            throw new ArgumentOutOfRangeException(nameof(size), "File exceeds size limit");
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(size, (ulong)ProtocolConstants.MaxFileSize);
 
         var buf = new byte[PayloadsConstants.NameOffset + nameBytes.Length];
         WriteFileIds(buf, deviceId, fileId);
