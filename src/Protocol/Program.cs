@@ -180,6 +180,7 @@ internal static class Program
                             senderDeviceId,
                             fileId,
                             accepted: parts[0] == "accept",
+                            directory: Path.GetTempPath(),
                             ct
                         );
                         Console.WriteLine(

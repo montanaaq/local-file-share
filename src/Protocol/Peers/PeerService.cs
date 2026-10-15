@@ -124,6 +124,7 @@ public sealed class PeerService : IAsyncDisposable
         Guid peerDeviceId,
         Guid fileId,
         bool accepted,
+        string directory,
         CancellationToken ct
     )
     {
@@ -138,7 +139,7 @@ public sealed class PeerService : IAsyncDisposable
 
             peer = value;
         }
-        var transfer = Transfers.SetIncomingDecision(peerDeviceId, fileId, accepted);
+        var transfer = Transfers.SetIncomingDecision(peerDeviceId, fileId, accepted, directory);
         try
         {
             var payload = Payloads.EncodeFileAnswer(DeviceId, fileId, accepted, nextIndex: 0);
@@ -397,8 +398,15 @@ public sealed class PeerService : IAsyncDisposable
         catch (OperationCanceledException) when (_stopCts.IsCancellationRequested) { }
         finally
         {
-            _transport.Dispose();
-            _stopCts.Dispose();
+            try
+            {
+                await Transfers.DisposeAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                _transport.Dispose();
+                _stopCts.Dispose();
+            }
         }
     }
 }
