@@ -18,6 +18,7 @@ public sealed class PeerService : IAsyncDisposable
     private readonly CancellationTokenSource _stopCts = new();
     private Task? _runTask;
     private bool _disposed;
+    private readonly ProcessedMessages _processedMessages = new();
 
     public PeerService(string name, int localPort = ProtocolConstants.DefaultPort)
     {
@@ -118,6 +119,41 @@ public sealed class PeerService : IAsyncDisposable
         }
     }
 
+    public async Task<FileTransfer> AnswerFileOfferAsync(
+        Guid peerDeviceId,
+        Guid fileId,
+        bool accepted,
+        CancellationToken ct
+    )
+    {
+        ct.ThrowIfCancellationRequested();
+        Peer peer;
+        lock (_stateLock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+            if (!_peers.TryGetValue(peerDeviceId, out var value))
+                throw new ArgumentException("Peer not exists");
+
+            peer = value;
+        }
+        var transfer = Transfers.SetIncomingDecision(peerDeviceId, fileId, accepted);
+        try
+        {
+            var payload = Payloads.EncodeFileAnswer(DeviceId, fileId, accepted, nextIndex: 0);
+            var packet = new Packet(MessageType.FileAnswer, _transport.NextSeq(), payload);
+
+            await _transport.SendReliableAsync(packet, peer.Endpoint, peerDeviceId, ct);
+        }
+        catch
+        {
+            Transfers.SetState(peerDeviceId, fileId, TransferState.Failed);
+            throw;
+        }
+
+        return transfer;
+    }
+
     private async Task RunCoreAsync(CancellationToken ct)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct, _stopCts.Token);
@@ -156,7 +192,10 @@ public sealed class PeerService : IAsyncDisposable
                 continue;
             }
 
-            if (packet.Type is not (MessageType.Heartbeat or MessageType.FileOffer))
+            if (
+                packet.Type
+                is not (MessageType.Heartbeat or MessageType.FileOffer or MessageType.FileAnswer)
+            )
                 continue;
 
             var senderDeviceId = new Guid(
@@ -168,6 +207,17 @@ public sealed class PeerService : IAsyncDisposable
 
             if (packet.Type == MessageType.FileOffer)
                 Transfers.HandleFileOffer(packet.Payload);
+
+            if (
+                packet.Type == MessageType.FileAnswer
+                && !_processedMessages.Contains(senderDeviceId, packet.Seq)
+            )
+            {
+                if (!Transfers.HandleFileAnswer(packet.Payload))
+                    continue;
+
+                _processedMessages.Add(senderDeviceId, packet.Seq);
+            }
 
             try
             {

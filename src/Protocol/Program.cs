@@ -75,7 +75,7 @@ internal static class Program
                 Console.WriteLine($"Device ID: {service.DeviceId}");
                 Console.WriteLine($"UDP port: {service.LocalPort}");
                 Console.WriteLine(
-                    "Commands: peers, peer IPv4:port, offer <deviceId> <filePath>, loss N, quit. Ctrl+C to stop."
+                    "Commands: peers, peer IPv4:port, offer <deviceId> <filePath>, accept <senderDeviceId> <fileId>, reject <senderDeviceId> <fileId>, loss N, quit. Ctrl+C to stop."
                 );
 
                 var running = service.RunAsync(cts.Token);
@@ -163,19 +163,42 @@ internal static class Program
                             $"Offer delivered, file ID: {transfer.FileId}. Waiting for the recipient's decision."
                         );
                         break;
+                    case "accept" when parts.Length == 2:
+                    case "reject" when parts.Length == 2:
+                        var answerArguments = parts[1].Split(
+                            ' ',
+                            StringSplitOptions.RemoveEmptyEntries
+                        );
+                        if (answerArguments.Length != 2)
+                            throw new ArgumentException(
+                                $"Usage: {parts[0]} <senderDeviceId> <fileId>"
+                            );
+
+                        var senderDeviceId = Guid.Parse(answerArguments[0]);
+                        var fileId = Guid.Parse(answerArguments[1]);
+                        var answeredTransfer = await service.AnswerFileOfferAsync(
+                            senderDeviceId,
+                            fileId,
+                            accepted: parts[0] == "accept",
+                            ct
+                        );
+                        Console.WriteLine(
+                            $"Answer delivered, file ID: {answeredTransfer.FileId}, state: {answeredTransfer.State}"
+                        );
+                        break;
                     case "loss" when parts.Length == 2:
                         service.LossRate = int.Parse(parts[1]);
                         Console.WriteLine($"Loss rate: {service.LossRate}%");
                         break;
                     default:
                         Console.WriteLine(
-                            "Commands: peers, peer IPv4:port, offer <deviceId> <filePath>, loss N, quit"
+                            "Commands: peers, peer IPv4:port, offer <deviceId> <filePath>, accept <senderDeviceId> <fileId>, reject <senderDeviceId> <fileId>, loss N, quit"
                         );
                         break;
                 }
             }
             catch (Exception ex)
-                when (ex is ArgumentException or FormatException or OverflowException)
+                when (ex is ArgumentException or FormatException or OverflowException or InvalidOperationException)
             {
                 Console.Error.WriteLine($"Invalid command: {ex.Message}");
             }

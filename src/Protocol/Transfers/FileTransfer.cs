@@ -11,4 +11,5 @@ public class FileTransfer
     public required byte[] Sha256 { get; set; }
     public TransferDirection Direction { get; set; }
     public TransferState State { get; set; }
+    public uint NextIndex { get; set; }
 }

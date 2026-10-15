@@ -12,7 +12,7 @@ public sealed class FileTransferService
 {
     private readonly Lock _stateLock = new();
 
-    private readonly Dictionary<(Guid PeerDeviceId, Guid FileId), FileTransfer> _transfers = new();
+    private readonly Dictionary<(Guid PeerDeviceId, Guid FileId), FileTransfer> _transfers = [];
 
     public event Action<FileTransfer>? FileOffered;
 
@@ -121,5 +121,58 @@ public sealed class FileTransferService
             var key = (peerDeviceId, fileId);
             _transfers[key].State = state;
         }
+    }
+
+    public FileTransfer SetIncomingDecision(Guid peerDeviceId, Guid fileId, bool accepted)
+    {
+        lock (_stateLock)
+        {
+            var key = (peerDeviceId, fileId);
+            if (!_transfers.TryGetValue(key, out var transfer))
+                throw new ArgumentException("Transfer not exists");
+
+            if (transfer.Direction != TransferDirection.Incoming)
+                throw new InvalidOperationException("Transfer must be incoming");
+
+            if (transfer.State != TransferState.WaitingForAnswer)
+                throw new InvalidOperationException("Transfer is not waiting for a decision");
+
+            transfer.State = accepted ? TransferState.Transferring : TransferState.Rejected;
+
+            return transfer;
+        }
+    }
+
+    public bool HandleFileAnswer(ReadOnlySpan<byte> payload)
+    {
+        var answer = Payloads.DecodeFileAnswer(payload);
+        if (answer is null)
+            return false;
+
+        lock (_stateLock)
+        {
+            var key = (answer.Value.DeviceId, answer.Value.FileId);
+            if (!_transfers.TryGetValue(key, out var transfer))
+                return false;
+
+            if (transfer.Direction != TransferDirection.Outgoing)
+                return false;
+
+            if (transfer.State != TransferState.WaitingForAnswer)
+                return false;
+
+            if (!answer.Value.Accepted)
+            {
+                transfer.State = TransferState.Rejected;
+                return true;
+            }
+
+            if (answer.Value.NextIndex != 0)
+                return false;
+
+            transfer.NextIndex = answer.Value.NextIndex;
+            transfer.State = TransferState.Transferring;
+        }
+        return true;
     }
 }
