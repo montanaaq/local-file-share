@@ -1,11 +1,14 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Protocol;
 
 internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
 {
+    private readonly SemaphoreSlim _fileLock = new(1, 1);
+    private bool _disposed;
     private readonly string _partPath;
     private readonly FileStream _stream;
     private readonly ulong _fileSize;
@@ -46,7 +49,21 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
         }
     }
 
-    public bool TryWriteChunk(uint index, ReadOnlySpan<byte> data)
+    public bool TryWriteChunk(uint index, ReadOnlySpan<byte> data, out uint nextIndex)
+    {
+        _fileLock.Wait();
+        try
+        {
+            return !_disposed && TryWriteChunkCore(index, data);
+        }
+        finally
+        {
+            nextIndex = NextIndex;
+            _fileLock.Release();
+        }
+    }
+
+    private bool TryWriteChunkCore(uint index, ReadOnlySpan<byte> data)
     {
         if (index >= (uint)_receivedChunks.Length)
             return false;
@@ -61,7 +78,6 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
         if (_receivedChunks[(int)index])
             return true;
 
-        // shortcut: synchronous writes hold the service state lock; use async file locking if disk latency affects responsiveness.
         _stream.Position = offset;
         _stream.Write(data);
         _receivedChunks[(int)index] = true;
@@ -74,13 +90,31 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
 
     public void Dispose()
     {
-        _stream.Dispose();
-        File.Delete(_partPath);
+        _fileLock.Wait();
+        try
+        {
+            _disposed = true;
+            _stream.Dispose();
+            File.Delete(_partPath);
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
     }
 
     public async ValueTask DisposeAsync()
     {
-        await _stream.DisposeAsync().ConfigureAwait(false);
-        File.Delete(_partPath);
+        await _fileLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            _disposed = true;
+            await _stream.DisposeAsync().ConfigureAwait(false);
+            File.Delete(_partPath);
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
     }
 }

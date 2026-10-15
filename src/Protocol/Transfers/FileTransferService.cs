@@ -12,10 +12,15 @@ public sealed class FileTransferService : IAsyncDisposable
 {
     private readonly Lock _stateLock = new();
 
-    private readonly Dictionary<TransferKey, TaskCompletionSource<bool>> _pendingAnswers = [];
-    private readonly Dictionary<TransferKey, IncomingFileTransfer> _incomingFiles = [];
-    private readonly Dictionary<TransferKey, string> _outgoingPaths = [];
-    private readonly Dictionary<TransferKey, FileTransfer> _transfers = [];
+    private readonly Dictionary<TransferKey, TransferEntry> _transfers = [];
+
+    private sealed class TransferEntry(FileTransfer transfer)
+    {
+        public FileTransfer Transfer { get; } = transfer;
+        public TaskCompletionSource<bool>? Answer { get; set; }
+        public IncomingFileTransfer? IncomingFile { get; set; }
+        public string? SourcePath { get; set; }
+    }
 
     private bool _disposed;
 
@@ -33,7 +38,8 @@ public sealed class FileTransferService : IAsyncDisposable
 
         lock (_stateLock)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_disposed)
+                return;
 
             if (_transfers.ContainsKey(key))
                 return;
@@ -49,7 +55,8 @@ public sealed class FileTransferService : IAsyncDisposable
                 State = TransferState.WaitingForAnswer,
             };
 
-            _transfers.Add(key, fileTransfer);
+            _transfers.Add(key, new TransferEntry(fileTransfer));
+            fileTransfer = fileTransfer.Snapshot();
         }
 
         FileOffered?.Invoke(fileTransfer);
@@ -60,6 +67,14 @@ public sealed class FileTransferService : IAsyncDisposable
         string fileName,
         ulong fileSize,
         byte[] sha256
+    ) => RegisterOutgoingTransfer(peerDeviceId, fileName, fileSize, sha256, sourcePath: null);
+
+    private FileTransfer RegisterOutgoingTransfer(
+        Guid peerDeviceId,
+        string fileName,
+        ulong fileSize,
+        byte[] sha256,
+        string? sourcePath
     )
     {
         ArgumentOutOfRangeException.ThrowIfGreaterThan(
@@ -72,7 +87,7 @@ public sealed class FileTransferService : IAsyncDisposable
             throw new ArgumentException("SHA-256 must contain 32 bytes", nameof(sha256));
 
         if (
-            fileName == string.Empty
+            string.IsNullOrEmpty(fileName)
             || Encoding.UTF8.GetByteCount(fileName) > PayloadsConstants.MaxNameBytes
         )
             throw new ArgumentException("File Name required or not too long");
@@ -89,20 +104,18 @@ public sealed class FileTransferService : IAsyncDisposable
                 PeerDeviceId = peerDeviceId,
                 FileName = fileName,
                 FileSize = fileSize,
-                Sha256 = sha256,
+                Sha256 = (byte[])sha256.Clone(),
                 Direction = TransferDirection.Outgoing,
                 State = TransferState.WaitingForAnswer,
             };
             var key = new TransferKey(fileTransfer.PeerDeviceId, fileTransfer.FileId);
-            _transfers.Add(key, fileTransfer);
-
-            _pendingAnswers.Add(
-                key,
-                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously)
-            );
+            _transfers.Add(key, new TransferEntry(fileTransfer)
+            {
+                SourcePath = sourcePath,
+                Answer = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously),
+            });
+            return fileTransfer.Snapshot();
         }
-
-        return fileTransfer;
     }
 
     public async Task<FileTransfer> PrepareOutgoingTransferAsync(
@@ -111,8 +124,13 @@ public sealed class FileTransferService : IAsyncDisposable
         CancellationToken ct
     )
     {
+        ct.ThrowIfCancellationRequested();
+        lock (_stateLock)
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+        var fullPath = Path.GetFullPath(filePath);
         await using var fileStream = new FileStream(
-            filePath,
+            fullPath,
             FileMode.Open,
             FileAccess.Read,
             FileShare.Read
@@ -125,47 +143,63 @@ public sealed class FileTransferService : IAsyncDisposable
             ProtocolConstants.MaxFileSize
         );
 
-        var fileName = Path.GetFileName(filePath);
+        var fileName = Path.GetFileName(fullPath);
         var sha256 = await SHA256.HashDataAsync(fileStream, ct);
-        var fullPath = Path.GetFullPath(filePath);
+        ct.ThrowIfCancellationRequested();
+        return RegisterOutgoingTransfer(peerDeviceId, fileName, (ulong)fileSize, sha256, fullPath);
+    }
 
-        var transfer = CreateOutgoingTransfer(peerDeviceId, fileName, (ulong)fileSize, sha256);
-        var key = new TransferKey(peerDeviceId, transfer.FileId);
-
-        try
+    public FileTransfer GetTransfer(Guid peerDeviceId, Guid fileId)
+    {
+        lock (_stateLock)
         {
-            lock (_stateLock)
-            {
-                ObjectDisposedException.ThrowIf(_disposed, this);
-
-                _outgoingPaths.Add(key, fullPath);
-            }
-            return transfer;
-        }
-        catch
-        {
-            SetState(key, TransferState.Failed);
-            throw;
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return _transfers[new TransferKey(peerDeviceId, fileId)].Transfer.Snapshot();
         }
     }
 
-    internal void SetState(TransferKey key, TransferState state)
+    private static IncomingFileTransfer? ChangeState(TransferEntry entry, TransferState state)
     {
-        IncomingFileTransfer? file = null;
+        entry.Transfer.State = state;
+        if (state is TransferState.Completed or TransferState.Rejected or TransferState.Failed or TransferState.Cancelled)
+            entry.SourcePath = null;
+
+        if (state is not (TransferState.Failed or TransferState.Cancelled))
+            return null;
+
+        entry.Answer?.TrySetCanceled();
+        entry.Answer = null;
+        var file = entry.IncomingFile;
+        entry.IncomingFile = null;
+        return file;
+    }
+
+    internal void SetState(TransferKey key, TransferState state, Exception? error = null)
+    {
+        IncomingFileTransfer? file;
+        FileTransfer snapshot;
         lock (_stateLock)
         {
-            if (state is TransferState.Failed or TransferState.Cancelled)
-                _incomingFiles.Remove(key, out file);
+            // An operation may finish unwinding after the service has been disposed.
+            if (_disposed)
+                return;
 
-            if (
-                state is TransferState.Failed or TransferState.Cancelled
-                && _pendingAnswers.Remove(key, out var completion)
-            )
-                completion.TrySetCanceled();
+            var entry = _transfers[key];
+            if (entry.Transfer.State is TransferState.Completed or TransferState.Rejected or TransferState.Failed or TransferState.Cancelled)
+                return;
 
-            _transfers[key].State = state;
+            file = ChangeState(entry, state);
+            snapshot = entry.Transfer.Snapshot();
         }
-        file?.Dispose();
+        try
+        {
+            file?.Dispose();
+        }
+        finally
+        {
+            if (state == TransferState.Failed && error is not null)
+                TransferFailed?.Invoke(snapshot, error);
+        }
     }
 
     public FileTransfer SetIncomingDecision(
@@ -176,6 +210,7 @@ public sealed class FileTransferService : IAsyncDisposable
     )
     {
         var key = new TransferKey(peerDeviceId, fileId);
+        TransferEntry entry;
         FileTransfer transfer;
         lock (_stateLock)
         {
@@ -184,7 +219,8 @@ public sealed class FileTransferService : IAsyncDisposable
             if (!_transfers.TryGetValue(key, out var value))
                 throw new ArgumentException("Transfer not exists");
 
-            transfer = value;
+            entry = value;
+            transfer = entry.Transfer;
 
             if (transfer.Direction != TransferDirection.Incoming)
                 throw new InvalidOperationException("Transfer must be incoming");
@@ -194,8 +230,8 @@ public sealed class FileTransferService : IAsyncDisposable
 
             if (!accepted)
             {
-                transfer.State = TransferState.Rejected;
-                return transfer;
+                ChangeState(entry, TransferState.Rejected);
+                return transfer.Snapshot();
             }
         }
         var incomingFile = IncomingFileTransfer.Create(transfer.FileSize, directory);
@@ -209,10 +245,10 @@ public sealed class FileTransferService : IAsyncDisposable
                 if (transfer.State != TransferState.WaitingForAnswer)
                     throw new InvalidOperationException("Transfer is not waiting for a decision");
 
-                _incomingFiles.Add(key, incomingFile);
-                transfer.State = TransferState.Transferring;
+                entry.IncomingFile = incomingFile;
+                ChangeState(entry, TransferState.Transferring);
+                return transfer.Snapshot();
             }
-            return transfer;
         }
         catch
         {
@@ -229,22 +265,27 @@ public sealed class FileTransferService : IAsyncDisposable
 
         lock (_stateLock)
         {
-            var key = new TransferKey(answer.Value.DeviceId, answer.Value.FileId);
-            if (!_transfers.TryGetValue(key, out var transfer))
+            if (_disposed)
                 return false;
 
+            var key = new TransferKey(answer.Value.DeviceId, answer.Value.FileId);
+            if (!_transfers.TryGetValue(key, out var entry))
+                return false;
+
+            var transfer = entry.Transfer;
             if (transfer.Direction != TransferDirection.Outgoing)
                 return false;
 
             if (transfer.State != TransferState.WaitingForAnswer)
                 return false;
 
-            if (!_pendingAnswers.TryGetValue(key, out var completion))
+            var completion = entry.Answer;
+            if (completion is null)
                 return false;
 
             if (!answer.Value.Accepted)
             {
-                transfer.State = TransferState.Rejected;
+                ChangeState(entry, TransferState.Rejected);
                 completion.TrySetResult(false);
                 return true;
             }
@@ -253,7 +294,7 @@ public sealed class FileTransferService : IAsyncDisposable
                 return false;
 
             transfer.NextIndex = answer.Value.NextIndex;
-            transfer.State = TransferState.Transferring;
+            ChangeState(entry, TransferState.Transferring);
             completion.TrySetResult(true);
         }
         return true;
@@ -266,52 +307,65 @@ public sealed class FileTransferService : IAsyncDisposable
     )
     {
         var key = new TransferKey(peerDeviceId, fileId);
+        TransferEntry entry;
         TaskCompletionSource<bool> completion;
 
         lock (_stateLock)
         {
-            if (!_pendingAnswers.TryGetValue(key, out var value))
-                throw new InvalidOperationException("Completion not exists");
-
-            completion = value;
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            entry = _transfers[key];
+            completion = entry.Answer
+                ?? throw new InvalidOperationException("Transfer is not waiting for an answer");
         }
         try
         {
             return await completion.Task.WaitAsync(ProtocolConstants.FileAnswerTimeout, ct);
         }
-        catch (TimeoutException)
+        catch (TimeoutException ex)
         {
-            lock (_stateLock)
-            {
-                if (completion.Task.IsCompletedSuccessfully)
-                    return completion.Task.Result;
-
-                _transfers.TryGetValue(key, out var transfer);
-                transfer?.State = TransferState.Failed;
-                _pendingAnswers.Remove(key);
-            }
+            var answer = StopWaitingForAnswer(entry, completion, TransferState.Failed, ex);
+            if (answer.HasValue)
+                return answer.Value;
             throw;
         }
         catch (OperationCanceledException)
         {
-            lock (_stateLock)
-            {
-                _transfers.TryGetValue(key, out var transfer);
-                if (transfer?.State == TransferState.WaitingForAnswer)
-                {
-                    transfer?.State = TransferState.Failed;
-                    _pendingAnswers.Remove(key);
-                }
-            }
+            var answer = StopWaitingForAnswer(entry, completion, TransferState.Cancelled);
+            if (answer.HasValue)
+                return answer.Value;
             throw;
         }
         finally
         {
             lock (_stateLock)
             {
-                _pendingAnswers.Remove(key);
+                if (entry.Answer == completion)
+                    entry.Answer = null;
             }
         }
+    }
+
+    private bool? StopWaitingForAnswer(
+        TransferEntry entry,
+        TaskCompletionSource<bool> completion,
+        TransferState state,
+        Exception? error = null
+    )
+    {
+        FileTransfer snapshot;
+        lock (_stateLock)
+        {
+            if (completion.Task.IsCompletedSuccessfully)
+                return completion.Task.Result;
+            if (_disposed || entry.Transfer.State != TransferState.WaitingForAnswer)
+                return null;
+
+            ChangeState(entry, state);
+            snapshot = entry.Transfer.Snapshot();
+        }
+        if (error is not null)
+            TransferFailed?.Invoke(snapshot, error);
+        return null;
     }
 
     public bool HandleChunk(ReadOnlySpan<byte> payload)
@@ -320,35 +374,36 @@ public sealed class FileTransferService : IAsyncDisposable
         if (chunk is null)
             return false;
         var key = new TransferKey(chunk.Value.DeviceId, chunk.Value.FileId);
-        FileTransfer? transfer = null;
+        TransferEntry entry;
+        IncomingFileTransfer incomingFile;
+        lock (_stateLock)
+        {
+            if (_disposed || !_transfers.TryGetValue(key, out var value))
+                return false;
+            entry = value;
+            if (entry.Transfer.State != TransferState.Transferring
+                || entry.Transfer.Direction != TransferDirection.Incoming
+                || entry.IncomingFile is null)
+                return false;
+            incomingFile = entry.IncomingFile;
+        }
         try
         {
+            if (!incomingFile.TryWriteChunk(chunk.Value.Index, chunk.Value.Data, out var nextIndex))
+                return false;
+
             lock (_stateLock)
             {
-                if (_disposed)
+                if (_disposed || entry.IncomingFile != incomingFile
+                    || entry.Transfer.State != TransferState.Transferring)
                     return false;
-
-                if (
-                    !_transfers.TryGetValue(key, out transfer)
-                    || transfer.State != TransferState.Transferring
-                    || transfer.Direction != TransferDirection.Incoming
-                )
-                    return false;
-
-                if (!_incomingFiles.TryGetValue(key, out var incomingFile))
-                    return false;
-
-                if (!incomingFile.TryWriteChunk(chunk.Value.Index, chunk.Value.Data))
-                    return false;
-
-                transfer.NextIndex = incomingFile.NextIndex;
+                entry.Transfer.NextIndex = Math.Max(entry.Transfer.NextIndex, nextIndex);
                 return true;
             }
         }
-        catch (IOException ioEx) when (transfer is not null)
+        catch (IOException ex)
         {
-            SetState(key, TransferState.Failed);
-            TransferFailed?.Invoke(transfer, ioEx);
+            SetState(key, TransferState.Failed, ex);
             return false;
         }
     }
@@ -356,17 +411,34 @@ public sealed class FileTransferService : IAsyncDisposable
     internal FileStream OpenOutgoingFile(TransferKey key)
     {
         string fullPath;
+        FileTransfer transfer;
         lock (_stateLock)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-
-            GetOutgoingTransferForSending(key);
-
-            if (!_outgoingPaths.TryGetValue(key, out var path))
-                throw new ArgumentException("Path not found");
-            fullPath = path;
+            transfer = GetOutgoingTransferForSending(key).Snapshot();
+            fullPath = _transfers[key].SourcePath
+                ?? throw new InvalidOperationException("Source path not found");
         }
-        return new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        try
+        {
+            // shortcut: external writers may bypass FileShare.Read; the receiver must verify the final SHA-256.
+            if ((ulong)stream.Length != transfer.FileSize
+                || !SHA256.HashData(stream).AsSpan().SequenceEqual(transfer.Sha256))
+                throw new IOException("Source file has changed since the offer was prepared");
+            stream.Position = 0;
+            lock (_stateLock)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                GetOutgoingTransferForSending(key);
+            }
+            return stream;
+        }
+        catch
+        {
+            stream.Dispose();
+            throw;
+        }
     }
 
     internal void ConfirmOutgoingChunk(TransferKey key, uint index)
@@ -390,9 +462,10 @@ public sealed class FileTransferService : IAsyncDisposable
 
     private FileTransfer GetOutgoingTransferForSending(TransferKey key)
     {
-        if (!_transfers.TryGetValue(key, out var transfer))
+        if (!_transfers.TryGetValue(key, out var entry))
             throw new ArgumentException("Transfer not found", nameof(key));
 
+        var transfer = entry.Transfer;
         if (transfer.Direction != TransferDirection.Outgoing)
             throw new InvalidOperationException("Transfer direction must be outgoing");
 
@@ -410,13 +483,14 @@ public sealed class FileTransferService : IAsyncDisposable
             if (_disposed)
                 return;
             _disposed = true;
-            files = [.. _incomingFiles.Values];
-            _incomingFiles.Clear();
-
-            foreach (var completion in _pendingAnswers.Values)
-                completion.TrySetCanceled();
-
-            _pendingAnswers.Clear();
+            files = [];
+            foreach (var entry in _transfers.Values)
+            {
+                entry.Answer?.TrySetCanceled();
+                if (entry.IncomingFile is not null)
+                    files.Add(entry.IncomingFile);
+            }
+            _transfers.Clear();
         }
         var errors = new List<Exception>();
 

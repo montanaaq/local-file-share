@@ -110,17 +110,18 @@ public sealed class PeerService : IAsyncDisposable
 
             await _transport.SendReliableAsync(packet, peer.Endpoint, peerDeviceId, ct);
         }
-        catch
+        catch (Exception ex)
         {
             Transfers.SetState(
                 new TransferKey(peerDeviceId, transfer.FileId),
-                TransferState.Failed
+                ex is OperationCanceledException ? TransferState.Cancelled : TransferState.Failed,
+                ex
             );
             throw;
         }
         await Transfers.WaitForFileAnswerAsync(peerDeviceId, transfer.FileId, ct);
 
-        return transfer;
+        return Transfers.GetTransfer(peerDeviceId, transfer.FileId);
     }
 
     public async Task<FileTransfer> AnswerFileOfferAsync(
@@ -150,9 +151,13 @@ public sealed class PeerService : IAsyncDisposable
 
             await _transport.SendReliableAsync(packet, peer.Endpoint, peerDeviceId, ct);
         }
-        catch
+        catch (Exception ex)
         {
-            Transfers.SetState(new TransferKey(peerDeviceId, fileId), TransferState.Failed);
+            Transfers.SetState(
+                new TransferKey(peerDeviceId, fileId),
+                ex is OperationCanceledException ? TransferState.Cancelled : TransferState.Failed,
+                ex
+            );
             throw;
         }
 
