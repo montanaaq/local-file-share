@@ -28,6 +28,10 @@ internal static class Program
                     $"File offer: {transfer.FileName}, {transfer.FileSize} bytes, "
                         + $"from {transfer.PeerDeviceId}, file ID: {transfer.FileId}"
                 );
+            service.Transfers.TransferFailed += (transfer, error) =>
+                Console.Error.WriteLine(
+                    $"Transfer {transfer.FileId} failed: {error.Message}"
+                );
             for (var index = 2; index < args.Length; index += 2)
             {
                 if (index + 1 >= args.Length)
@@ -160,7 +164,7 @@ internal static class Program
                             ct
                         );
                         Console.WriteLine(
-                            $"Offer delivered, file ID: {transfer.FileId}. Waiting for the recipient's decision."
+                            $"File ID: {transfer.FileId}, state: {transfer.State}"
                         );
                         break;
                     case "accept" when parts.Length == 2:

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -15,11 +14,13 @@ public sealed class FileTransferService : IAsyncDisposable
 
     private readonly Dictionary<TransferKey, TaskCompletionSource<bool>> _pendingAnswers = [];
     private readonly Dictionary<TransferKey, IncomingFileTransfer> _incomingFiles = [];
+    private readonly Dictionary<TransferKey, string> _outgoingPaths = [];
     private readonly Dictionary<TransferKey, FileTransfer> _transfers = [];
 
     private bool _disposed;
 
     public event Action<FileTransfer>? FileOffered;
+    public event Action<FileTransfer, Exception>? TransferFailed;
 
     public void HandleFileOffer(ReadOnlySpan<byte> payload)
     {
@@ -117,6 +118,8 @@ public sealed class FileTransferService : IAsyncDisposable
             FileShare.Read
         );
 
+        var fileSize = fileStream.Length;
+
         ArgumentOutOfRangeException.ThrowIfGreaterThan(
             fileStream.Length,
             ProtocolConstants.MaxFileSize
@@ -124,17 +127,33 @@ public sealed class FileTransferService : IAsyncDisposable
 
         var fileName = Path.GetFileName(filePath);
         var sha256 = await SHA256.HashDataAsync(fileStream, ct);
+        var fullPath = Path.GetFullPath(filePath);
 
-        return CreateOutgoingTransfer(peerDeviceId, fileName, (ulong)fileStream.Length, sha256);
+        var transfer = CreateOutgoingTransfer(peerDeviceId, fileName, (ulong)fileSize, sha256);
+        var key = new TransferKey(peerDeviceId, transfer.FileId);
+
+        try
+        {
+            lock (_stateLock)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+
+                _outgoingPaths.Add(key, fullPath);
+            }
+            return transfer;
+        }
+        catch
+        {
+            SetState(key, TransferState.Failed);
+            throw;
+        }
     }
 
-    public void SetState(Guid peerDeviceId, Guid fileId, TransferState state)
+    internal void SetState(TransferKey key, TransferState state)
     {
         IncomingFileTransfer? file = null;
         lock (_stateLock)
         {
-            var key = new TransferKey(peerDeviceId, fileId);
-
             if (state is TransferState.Failed or TransferState.Cancelled)
                 _incomingFiles.Remove(key, out file);
 
@@ -146,11 +165,7 @@ public sealed class FileTransferService : IAsyncDisposable
 
             _transfers[key].State = state;
         }
-        if (file is not null)
-        {
-            file.Stream.Dispose();
-            File.Delete(file.PartPath);
-        }
+        file?.Dispose();
     }
 
     public FileTransfer SetIncomingDecision(
@@ -183,7 +198,7 @@ public sealed class FileTransferService : IAsyncDisposable
                 return transfer;
             }
         }
-        var incomingFile = CreateIncomingFile(transfer, directory);
+        var incomingFile = IncomingFileTransfer.Create(transfer.FileSize, directory);
 
         try
         {
@@ -201,8 +216,7 @@ public sealed class FileTransferService : IAsyncDisposable
         }
         catch
         {
-            incomingFile.Stream.Dispose();
-            File.Delete(incomingFile.PartPath);
+            incomingFile.Dispose();
             throw;
         }
     }
@@ -300,30 +314,92 @@ public sealed class FileTransferService : IAsyncDisposable
         }
     }
 
-    private static IncomingFileTransfer CreateIncomingFile(FileTransfer transfer, string directory)
+    public bool HandleChunk(ReadOnlySpan<byte> payload)
     {
-        var chunkSize = (ulong)ProtocolConstants.ChunkSize;
-        var chunkCount = (int)((transfer.FileSize + chunkSize - 1) / chunkSize);
-
-        Directory.CreateDirectory(directory);
-        var partPath = Path.Combine(directory, $"{Guid.NewGuid():N}.part");
-
-        var stream = new FileStream(
-            partPath,
-            FileMode.CreateNew,
-            FileAccess.ReadWrite,
-            FileShare.None
-        );
+        var chunk = Payloads.DecodeChunk(payload);
+        if (chunk is null)
+            return false;
+        var key = new TransferKey(chunk.Value.DeviceId, chunk.Value.FileId);
+        FileTransfer? transfer = null;
         try
         {
-            return new IncomingFileTransfer(partPath, stream, chunkCount);
+            lock (_stateLock)
+            {
+                if (_disposed)
+                    return false;
+
+                if (
+                    !_transfers.TryGetValue(key, out transfer)
+                    || transfer.State != TransferState.Transferring
+                    || transfer.Direction != TransferDirection.Incoming
+                )
+                    return false;
+
+                if (!_incomingFiles.TryGetValue(key, out var incomingFile))
+                    return false;
+
+                if (!incomingFile.TryWriteChunk(chunk.Value.Index, chunk.Value.Data))
+                    return false;
+
+                transfer.NextIndex = incomingFile.NextIndex;
+                return true;
+            }
         }
-        catch
+        catch (IOException ioEx) when (transfer is not null)
         {
-            stream.Dispose();
-            File.Delete(partPath);
-            throw;
+            SetState(key, TransferState.Failed);
+            TransferFailed?.Invoke(transfer, ioEx);
+            return false;
         }
+    }
+
+    internal FileStream OpenOutgoingFile(TransferKey key)
+    {
+        string fullPath;
+        lock (_stateLock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+            GetOutgoingTransferForSending(key);
+
+            if (!_outgoingPaths.TryGetValue(key, out var path))
+                throw new ArgumentException("Path not found");
+            fullPath = path;
+        }
+        return new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+    }
+
+    internal void ConfirmOutgoingChunk(TransferKey key, uint index)
+    {
+        lock (_stateLock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+            var transfer = GetOutgoingTransferForSending(key);
+
+            if (index != transfer.NextIndex)
+                throw new InvalidOperationException("Unexpected acknowledged chunk index");
+
+            var offset = (ulong)index * (ulong)ProtocolConstants.ChunkSize;
+            if (offset >= transfer.FileSize)
+                throw new ArgumentOutOfRangeException(nameof(index));
+
+            transfer.NextIndex++;
+        }
+    }
+
+    private FileTransfer GetOutgoingTransferForSending(TransferKey key)
+    {
+        if (!_transfers.TryGetValue(key, out var transfer))
+            throw new ArgumentException("Transfer not found", nameof(key));
+
+        if (transfer.Direction != TransferDirection.Outgoing)
+            throw new InvalidOperationException("Transfer direction must be outgoing");
+
+        if (transfer.State != TransferState.Transferring)
+            throw new InvalidOperationException("Transfer state must be transferring");
+
+        return transfer;
     }
 
     public async ValueTask DisposeAsync()
@@ -349,7 +425,6 @@ public sealed class FileTransferService : IAsyncDisposable
             try
             {
                 await file.DisposeAsync();
-                File.Delete(file.PartPath);
             }
             catch (Exception ex)
             {

@@ -112,7 +112,10 @@ public sealed class PeerService : IAsyncDisposable
         }
         catch
         {
-            Transfers.SetState(peerDeviceId, transfer.FileId, TransferState.Failed);
+            Transfers.SetState(
+                new TransferKey(peerDeviceId, transfer.FileId),
+                TransferState.Failed
+            );
             throw;
         }
         await Transfers.WaitForFileAnswerAsync(peerDeviceId, transfer.FileId, ct);
@@ -149,7 +152,7 @@ public sealed class PeerService : IAsyncDisposable
         }
         catch
         {
-            Transfers.SetState(peerDeviceId, fileId, TransferState.Failed);
+            Transfers.SetState(new TransferKey(peerDeviceId, fileId), TransferState.Failed);
             throw;
         }
 
@@ -189,15 +192,20 @@ public sealed class PeerService : IAsyncDisposable
                     continue;
 
                 UpdatePeer(info.Value.DeviceId, info.Value.Name, from);
-                if (packet.Type == MessageType.Discover)
+                if (packet.Type is MessageType.Discover)
                     await SendPeerInfoAsync(MessageType.PeerInfo, from).ConfigureAwait(false);
                 continue;
             }
 
-            if (
-                packet.Type
-                is not (MessageType.Heartbeat or MessageType.FileOffer or MessageType.FileAnswer)
-            )
+            List<MessageType> allowedTypes =
+            [
+                MessageType.Heartbeat,
+                MessageType.FileOffer,
+                MessageType.FileAnswer,
+                MessageType.Chunk,
+            ];
+
+            if (!allowedTypes.Contains(packet.Type))
                 continue;
 
             var senderDeviceId = new Guid(
@@ -207,11 +215,11 @@ public sealed class PeerService : IAsyncDisposable
             if (senderDeviceId == DeviceId || !RefreshPeer(senderDeviceId, from))
                 continue;
 
-            if (packet.Type == MessageType.FileOffer)
+            if (packet.Type is MessageType.FileOffer)
                 Transfers.HandleFileOffer(packet.Payload);
 
             if (
-                packet.Type == MessageType.FileAnswer
+                packet.Type is MessageType.FileAnswer
                 && !_processedMessages.Contains(senderDeviceId, packet.Seq)
             )
             {
@@ -223,6 +231,10 @@ public sealed class PeerService : IAsyncDisposable
 
             try
             {
+                if (packet.Type is MessageType.Chunk && !Transfers.HandleChunk(packet.Payload))
+                {
+                    continue;
+                }
                 await _transport.SendAckAsync(packet.Seq, from, DeviceId).ConfigureAwait(false);
             }
             catch (SocketException ex) when (IsUnreachable(ex))
