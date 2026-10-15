@@ -81,6 +81,9 @@ public sealed class PeerService : IAsyncDisposable
         CancellationToken ct
     )
     {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct, _stopCts.Token);
+        ct = cts.Token;
+
         ct.ThrowIfCancellationRequested();
         lock (_stateLock)
         {
@@ -119,9 +122,75 @@ public sealed class PeerService : IAsyncDisposable
             );
             throw;
         }
-        await Transfers.WaitForFileAnswerAsync(peerDeviceId, transfer.FileId, ct);
+        var accepted = await Transfers.WaitForFileAnswerAsync(peerDeviceId, transfer.FileId, ct);
+        if (!accepted)
+            return Transfers.GetTransfer(peerDeviceId, transfer.FileId);
 
+        var key = new TransferKey(peerDeviceId, transfer.FileId);
+        try
+        {
+            await SendChunksAsync(key, ct);
+        }
+        catch (TimeoutException)
+        {
+            Transfers.SetState(key, TransferState.Paused);
+        }
+        catch (SocketException ex) when (IsUnreachable(ex))
+        {
+            Transfers.SetState(key, TransferState.Paused);
+            Peer peer;
+            lock (_stateLock)
+                peer = _peers[peerDeviceId];
+            NetworkError?.Invoke(peer.Endpoint, ex);
+        }
+        catch (Exception ex)
+        {
+            Transfers.SetState(
+                key,
+                ex is OperationCanceledException ? TransferState.Cancelled : TransferState.Failed,
+                ex
+            );
+            throw;
+        }
         return Transfers.GetTransfer(peerDeviceId, transfer.FileId);
+    }
+
+    private async Task SendChunksAsync(TransferKey key, CancellationToken ct)
+    {
+        await using var stream = Transfers.OpenOutgoingFile(key);
+
+        var transfer = Transfers.GetTransfer(key.PeerDeviceId, key.FileId);
+        var index = transfer.NextIndex;
+        var offset = (long)index * ProtocolConstants.ChunkSize;
+
+        stream.Position = offset;
+        var buffer = new byte[ProtocolConstants.ChunkSize];
+
+        while (offset < (long)transfer.FileSize)
+        {
+            ct.ThrowIfCancellationRequested();
+            var length = (int)Math.Min(buffer.Length, (long)transfer.FileSize - offset);
+            await stream.ReadExactlyAsync(buffer.AsMemory(0, length), ct);
+
+            var payload = Payloads.EncodeChunk(
+                DeviceId,
+                key.FileId,
+                index,
+                buffer.AsSpan(0, length)
+            );
+            var packet = new Packet(MessageType.Chunk, _transport.NextSeq(), payload);
+
+            Peer peer;
+            lock (_stateLock)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                peer = _peers[key.PeerDeviceId];
+            }
+            await _transport.SendReliableAsync(packet, peer.Endpoint, key.PeerDeviceId, ct);
+            Transfers.ConfirmOutgoingChunk(key, index);
+            index++;
+            offset += length;
+        }
     }
 
     public async Task<FileTransfer> AnswerFileOfferAsync(
