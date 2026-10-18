@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace Protocol;
 
-public sealed class FileTransferService : IAsyncDisposable
+internal sealed class FileTransferService : IAsyncDisposable
 {
     private readonly Lock _stateLock = new();
 

@@ -13,19 +13,34 @@ public sealed class PeerService : IAsyncDisposable
     private readonly UdpTransport _transport;
     private readonly byte[] _peerInfoPayload;
     private readonly Lock _stateLock = new();
-    private readonly Dictionary<Guid, Peer> _peers = [];
+    private readonly Dictionary<Guid, (Peer Peer, long LastSeen)> _peers = [];
     private readonly HashSet<IPEndPoint> _manualEndpoints = [];
     private readonly CancellationTokenSource _stopCts = new();
     private Task? _runTask;
     private bool _disposed;
-    private readonly ProcessedMessages _processedMessages = new();
-    private readonly HashSet<Task> _fileResultTasks = [];
+    private readonly FileExchange _fileExchange;
+    private readonly NotificationDispatcher _notifications;
+    private readonly TimeProvider _timeProvider;
+    private Task? _disposeTask;
 
-    public PeerService(string name, int localPort = ProtocolConstants.DefaultPort)
+    public PeerService(
+        string name,
+        int localPort = ProtocolConstants.DefaultPort,
+        TimeProvider? timeProvider = null
+    )
     {
         DeviceId = Guid.NewGuid();
         _peerInfoPayload = Payloads.EncodePeerInfo(DeviceId, name);
         _transport = new UdpTransport(localPort);
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _notifications = new NotificationDispatcher();
+        _fileExchange = new FileExchange(
+            _transport,
+            DeviceId,
+            ResolveEndpoint,
+            _stopCts.Token,
+            _notifications
+        );
     }
 
     public Guid DeviceId { get; }
@@ -36,30 +51,66 @@ public sealed class PeerService : IAsyncDisposable
         set => _transport.LossRate = value;
     }
 
-    public FileTransferService Transfers { get; } = new();
+    public ITransferSource Transfers => _fileExchange;
+
+    /// <summary>Reports subscriber errors on the background notification worker.</summary>
+    public event Action<Exception>? NotificationFailed
+    {
+        add => _notifications.NotificationFailed += value;
+        remove => _notifications.NotificationFailed -= value;
+    }
 
     public event Action<Peer>? PeerChanged;
-    public event Action<IPEndPoint, SocketException>? NetworkError;
-    public event Action<FileTransfer, Exception>? FileResultDeliveryFailed;
+    private event Action<IPEndPoint, SocketException>? NetworkErrorHandlers;
+    public event Action<IPEndPoint, SocketException>? NetworkError
+    {
+        add
+        {
+            NetworkErrorHandlers += value;
+            _fileExchange.NetworkError += value;
+        }
+        remove
+        {
+            NetworkErrorHandlers -= value;
+            _fileExchange.NetworkError -= value;
+        }
+    }
+    public event Action<FileTransfer, Exception>? FileResultDeliveryFailed
+    {
+        add => _fileExchange.FileResultDeliveryFailed += value;
+        remove => _fileExchange.FileResultDeliveryFailed -= value;
+    }
 
     public Peer[] GetPeers()
     {
         lock (_stateLock)
-            return _peers.Values.ToArray();
+        {
+            return _peers.Values.Select(entry => entry.Peer).ToArray();
+        }
     }
 
     public void AddManualEndpoint(IPEndPoint endpoint)
     {
-        ArgumentNullException.ThrowIfNull(endpoint);
+        if (endpoint is null)
+        {
+            throw new ArgumentNullException(nameof(endpoint), "Value cannot be null");
+        }
+
         if (endpoint.AddressFamily != AddressFamily.InterNetwork || endpoint.Port == 0)
+        {
             throw new ArgumentException(
-                "An IPv4 address and nonzero port are required",
+                "An IPv4 address and a nonzero port are required",
                 nameof(endpoint)
             );
+        }
 
         lock (_stateLock)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(nameof(PeerService), "Object has been disposed");
+            }
+
             _manualEndpoints.Add(new IPEndPoint(endpoint.Address, endpoint.Port));
         }
     }
@@ -68,247 +119,42 @@ public sealed class PeerService : IAsyncDisposable
     {
         lock (_stateLock)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(nameof(PeerService), "Object has been disposed");
+            }
+
             if (_runTask is not null)
+            {
                 throw new InvalidOperationException("Peer service has already been started");
+            }
 
             _runTask = RunCoreAsync(ct);
             return _runTask;
         }
     }
 
-    public async Task<FileTransfer> OfferFileAsync(
+    public Task<FileTransfer> OfferFileAsync(
         Guid peerDeviceId,
         string filePath,
         CancellationToken ct
-    )
-    {
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct, _stopCts.Token);
-        ct = cts.Token;
+    ) => _fileExchange.OfferFileAsync(peerDeviceId, filePath, ct);
 
-        ct.ThrowIfCancellationRequested();
-        lock (_stateLock)
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-
-            if (!_peers.ContainsKey(peerDeviceId))
-                throw new ArgumentException("Unknown device", nameof(peerDeviceId));
-        }
-        var transfer = await Transfers.PrepareOutgoingTransferAsync(peerDeviceId, filePath, ct);
-        try
-        {
-            var payload = Payloads.EncodeFileOffer(
-                DeviceId,
-                transfer.FileId,
-                transfer.FileSize,
-                transfer.Sha256,
-                transfer.FileName
-            );
-            var packet = new Packet(MessageType.FileOffer, _transport.NextSeq(), payload);
-
-            Peer peer;
-            lock (_stateLock)
-            {
-                ObjectDisposedException.ThrowIf(_disposed, this);
-                peer = _peers[peerDeviceId];
-            }
-
-            await _transport.SendReliableAsync(packet, peer.Endpoint, peerDeviceId, ct);
-        }
-        catch (Exception ex)
-        {
-            Transfers.SetState(
-                new TransferKey(peerDeviceId, transfer.FileId),
-                ex is OperationCanceledException ? TransferState.Cancelled : TransferState.Failed,
-                ex
-            );
-            throw;
-        }
-        var accepted = await Transfers.WaitForFileAnswerAsync(peerDeviceId, transfer.FileId, ct);
-        if (!accepted)
-            return Transfers.GetTransfer(peerDeviceId, transfer.FileId);
-
-        var key = new TransferKey(peerDeviceId, transfer.FileId);
-        try
-        {
-            await SendChunksAsync(key, ct);
-            await SendFileDoneAsync(key, ct);
-            await Transfers.WaitForFileResultAsync(key, ct);
-        }
-        catch (TimeoutException)
-        {
-            Transfers.SetState(key, TransferState.Paused);
-        }
-        catch (SocketException ex) when (IsUnreachable(ex))
-        {
-            Transfers.SetState(key, TransferState.Paused);
-            Peer peer;
-            lock (_stateLock)
-                peer = _peers[peerDeviceId];
-            NetworkError?.Invoke(peer.Endpoint, ex);
-        }
-        catch (Exception ex)
-        {
-            Transfers.SetState(
-                key,
-                ex is OperationCanceledException ? TransferState.Cancelled : TransferState.Failed,
-                ex
-            );
-            throw;
-        }
-        return Transfers.GetTransfer(peerDeviceId, transfer.FileId);
-    }
-
-    public async Task<FileTransfer> AnswerFileOfferAsync(
+    public Task<FileTransfer> AnswerFileOfferAsync(
         Guid peerDeviceId,
         Guid fileId,
         bool accepted,
         string directory,
         CancellationToken ct
-    )
+    ) => _fileExchange.AnswerFileOfferAsync(peerDeviceId, fileId, accepted, directory, ct);
+
+    private IPEndPoint ResolveEndpoint(Guid peerDeviceId)
     {
-        ct.ThrowIfCancellationRequested();
-        Peer peer;
         lock (_stateLock)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-
-            if (!_peers.TryGetValue(peerDeviceId, out var value))
-                throw new ArgumentException("Peer not exists");
-
-            peer = value;
-        }
-        var transfer = Transfers.SetIncomingDecision(peerDeviceId, fileId, accepted, directory);
-        try
-        {
-            var payload = Payloads.EncodeFileAnswer(DeviceId, fileId, accepted, nextIndex: 0);
-            var packet = new Packet(MessageType.FileAnswer, _transport.NextSeq(), payload);
-
-            await _transport.SendReliableAsync(packet, peer.Endpoint, peerDeviceId, ct);
-        }
-        catch (Exception ex)
-        {
-            Transfers.SetState(
-                new TransferKey(peerDeviceId, fileId),
-                ex is OperationCanceledException ? TransferState.Cancelled : TransferState.Failed,
-                ex
-            );
-            throw;
-        }
-
-        return transfer;
-    }
-
-    private async Task SendChunksAsync(TransferKey key, CancellationToken ct)
-    {
-        await using var stream = await Transfers.OpenOutgoingFileAsync(key, ct);
-
-        var transfer = Transfers.GetTransfer(key.PeerDeviceId, key.FileId);
-        var index = transfer.NextIndex;
-        var offset = (long)index * ProtocolConstants.ChunkSize;
-
-        stream.Position = offset;
-        var buffer = new byte[ProtocolConstants.ChunkSize];
-
-        while (offset < (long)transfer.FileSize)
-        {
-            ct.ThrowIfCancellationRequested();
-            var length = (int)Math.Min(buffer.Length, (long)transfer.FileSize - offset);
-            await stream.ReadExactlyAsync(buffer.AsMemory(0, length), ct);
-
-            var payload = Payloads.EncodeChunk(
-                DeviceId,
-                key.FileId,
-                index,
-                buffer.AsSpan(0, length)
-            );
-            var packet = new Packet(MessageType.Chunk, _transport.NextSeq(), payload);
-
-            Peer peer;
-            lock (_stateLock)
-            {
-                ObjectDisposedException.ThrowIf(_disposed, this);
-                peer = _peers[key.PeerDeviceId];
-            }
-            await _transport.SendReliableAsync(packet, peer.Endpoint, key.PeerDeviceId, ct);
-            Transfers.ConfirmOutgoingChunk(key, index);
-            index++;
-            offset += length;
-        }
-    }
-
-    private async Task SendFileDoneAsync(TransferKey key, CancellationToken ct)
-    {
-        var payload = Payloads.EncodeFileDone(DeviceId, key.FileId);
-        var packet = new Packet(MessageType.FileDone, _transport.NextSeq(), payload);
-        Peer peer;
-
-        lock (_stateLock)
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-
-            peer = _peers[key.PeerDeviceId];
-        }
-
-        await _transport
-            .SendReliableAsync(packet, peer.Endpoint, key.PeerDeviceId, ct)
-            .ConfigureAwait(false);
-    }
-
-    private async Task SendFileResultAsync(TransferKey key, bool ok, CancellationToken ct)
-    {
-        var payload = Payloads.EncodeFileResult(DeviceId, key.FileId, ok);
-        var packet = new Packet(MessageType.FileResult, _transport.NextSeq(), payload);
-        Peer peer;
-
-        lock (_stateLock)
-        {
-            if (_disposed)
-                return;
-            peer = _peers[key.PeerDeviceId];
-        }
-        try
-        {
-            await _transport
-                .SendReliableAsync(packet, peer.Endpoint, key.PeerDeviceId, ct)
-                .ConfigureAwait(false);
-        }
-        catch (TimeoutException ex)
-        {
-            FileResultDeliveryFailed?.Invoke(Transfers.GetTransfer(key.PeerDeviceId, key.FileId), ex);
-        }
-        catch (SocketException ex) when (IsUnreachable(ex))
-        {
-            FileResultDeliveryFailed?.Invoke(Transfers.GetTransfer(key.PeerDeviceId, key.FileId), ex);
-        }
-    }
-
-    private async Task CompleteAndSendFileResultAsync(
-        TransferKey key,
-        Task<bool> completion,
-        CancellationToken ct
-    )
-    {
-        var ok = await completion.ConfigureAwait(false);
-        await SendFileResultAsync(key, ok, ct).ConfigureAwait(false);
-    }
-
-    private async Task ObserveFileResultsAsync(bool completedOnly, CancellationToken ct)
-    {
-        Task[] tasks;
-        lock (_stateLock)
-        {
-            tasks = _fileResultTasks.Where(task => !completedOnly || task.IsCompleted).ToArray();
-            foreach (var task in tasks)
-                _fileResultTasks.Remove(task);
-        }
-        try
-        {
-            await Task.WhenAll(tasks).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            return;
+            return _peers.TryGetValue(peerDeviceId, out var peer)
+                ? peer.Peer.Endpoint
+                : throw new ArgumentException("Unknown device", nameof(peerDeviceId));
         }
     }
 
@@ -332,7 +178,7 @@ public sealed class PeerService : IAsyncDisposable
             catch (OperationCanceledException) when (cts.IsCancellationRequested) { }
             finally
             {
-                await ObserveFileResultsAsync(completedOnly: false, cts.Token).ConfigureAwait(false);
+                await _fileExchange.WaitForPendingOperationsAsync(cts.Token).ConfigureAwait(false);
             }
         }
     }
@@ -346,90 +192,58 @@ public sealed class PeerService : IAsyncDisposable
             {
                 var info = Payloads.DecodePeerInfo(packet.Payload);
                 if (info is null || info.Value.DeviceId == DeviceId)
+                {
                     continue;
+                }
 
                 UpdatePeer(info.Value.DeviceId, info.Value.Name, from);
                 if (packet.Type is MessageType.Discover)
+                {
                     await SendPeerInfoAsync(MessageType.PeerInfo, from).ConfigureAwait(false);
+                }
+
                 continue;
             }
 
-            List<MessageType> allowedTypes =
-            [
-                MessageType.Heartbeat,
-                MessageType.FileOffer,
-                MessageType.FileAnswer,
-                MessageType.Chunk,
-                MessageType.FileDone,
-                MessageType.FileResult,
-            ];
-
-            if (!allowedTypes.Contains(packet.Type))
+            if (
+                packet.Type
+                is not (
+                    MessageType.Heartbeat
+                    or MessageType.FileOffer
+                    or MessageType.FileAnswer
+                    or MessageType.Chunk
+                    or MessageType.FileDone
+                    or MessageType.FileResult
+                )
+            )
+            {
                 continue;
+            }
 
             var senderDeviceId = new Guid(
                 packet.Payload.AsSpan(0, PayloadsConstants.DeviceIdSize),
                 bigEndian: true
             );
             if (senderDeviceId == DeviceId || !RefreshPeer(senderDeviceId, from))
+            {
                 continue;
-
-            if (packet.Type is MessageType.FileOffer)
-                Transfers.HandleFileOffer(packet.Payload);
-
-            if (
-                packet.Type is MessageType.FileAnswer
-                && !_processedMessages.Contains(senderDeviceId, packet.Seq)
-            )
-            {
-                if (!Transfers.HandleFileAnswer(packet.Payload))
-                    continue;
-
-                _processedMessages.Add(senderDeviceId, packet.Seq);
             }
 
-            if (
-                packet.Type is MessageType.FileResult
-                && !_processedMessages.Contains(senderDeviceId, packet.Seq)
-            )
+            if (packet.Type != MessageType.Heartbeat)
             {
-                if (!Transfers.HandleFileResult(packet.Payload))
-                    continue;
-
-                _processedMessages.Add(senderDeviceId, packet.Seq);
-            }
-
-            Task<bool>? completion = null;
-            TransferKey completionKey = default;
-            if (packet.Type is MessageType.FileDone)
-            {
-                var fileDone = Payloads.DecodeFileDone(packet.Payload);
-                if (fileDone is null)
-                    continue;
-                completion = Transfers.HandleFileDone(packet.Payload, ct);
-                if (completion is null)
-                    continue;
-                completionKey = new TransferKey(senderDeviceId, fileDone.Value.FileId);
+                await _fileExchange
+                    .HandlePacketAsync(packet, from, senderDeviceId, ct)
+                    .ConfigureAwait(false);
+                continue;
             }
 
             try
             {
-                if (packet.Type is MessageType.Chunk && !Transfers.HandleChunk(packet.Payload))
-                {
-                    continue;
-                }
                 await _transport.SendAckAsync(packet.Seq, from, DeviceId).ConfigureAwait(false);
             }
-            catch (SocketException ex) when (IsUnreachable(ex))
+            catch (SocketException exception) when (exception.IsUnreachable())
             {
-                NetworkError?.Invoke(from, ex);
-            }
-
-            if (completion is not null)
-            {
-                var delivery = CompleteAndSendFileResultAsync(completionKey, completion, ct);
-                lock (_stateLock)
-                    _fileResultTasks.Add(delivery);
+                _notifications.Post(NetworkErrorHandlers, handler => handler(from, exception));
             }
         }
     }
@@ -441,12 +255,15 @@ public sealed class PeerService : IAsyncDisposable
             name,
             endpoint.Address,
             endpoint.Port,
-            DateTimeOffset.UtcNow,
+            _timeProvider.GetUtcNow(),
             PeerAvailability.Available
         );
         lock (_stateLock)
-            _peers[deviceId] = peer;
-        PeerChanged?.Invoke(peer);
+        {
+            _peers[deviceId] = (peer, _timeProvider.GetTimestamp());
+        }
+
+        _notifications.Post(PeerChanged, handler => handler(peer));
     }
 
     private bool RefreshPeer(Guid deviceId, IPEndPoint endpoint)
@@ -454,33 +271,42 @@ public sealed class PeerService : IAsyncDisposable
         Peer updated;
         lock (_stateLock)
         {
-            if (!_peers.TryGetValue(deviceId, out var peer) || !peer.Endpoint.Equals(endpoint))
-                return false;
-
-            updated = peer with
+            if (
+                !_peers.TryGetValue(deviceId, out var entry)
+                || !entry.Peer.Endpoint.Equals(endpoint)
+            )
             {
-                LastSeen = DateTimeOffset.UtcNow,
+                return false;
+            }
+
+            updated = entry.Peer with
+            {
+                LastSeen = _timeProvider.GetUtcNow(),
                 Availability = PeerAvailability.Available,
             };
-            _peers[deviceId] = updated;
+            _peers[deviceId] = (updated, _timeProvider.GetTimestamp());
         }
-        PeerChanged?.Invoke(updated);
+        _notifications.Post(PeerChanged, handler => handler(updated));
         return true;
     }
 
     private async Task MonitorAsync(CancellationToken ct)
     {
         using var timer = new PeriodicTimer(ProtocolConstants.Heartbeat);
-        var nextDiscover = DateTimeOffset.MinValue;
+        long? lastDiscover = null;
         do
         {
             ct.ThrowIfCancellationRequested();
-            await ObserveFileResultsAsync(completedOnly: true, ct).ConfigureAwait(false);
-            var now = DateTimeOffset.UtcNow;
-            if (now >= nextDiscover)
+            await _fileExchange.CheckCompletedOperationsAsync(ct).ConfigureAwait(false);
+            long now = _timeProvider.GetTimestamp();
+            if (
+                lastDiscover is null
+                || _timeProvider.GetElapsedTime(lastDiscover.Value, now)
+                    >= ProtocolConstants.DiscoverInterval
+            )
             {
                 await DiscoverAsync().ConfigureAwait(false);
-                nextDiscover = now + ProtocolConstants.DiscoverInterval;
+                lastDiscover = now;
             }
 
             UpdateAvailability(now);
@@ -503,7 +329,9 @@ public sealed class PeerService : IAsyncDisposable
         endpoints.Add(new IPEndPoint(IPAddress.Loopback, ProtocolConstants.DefaultPort));
 
         foreach (var endpoint in endpoints)
+        {
             await SendPeerInfoAsync(MessageType.Discover, endpoint).ConfigureAwait(false);
+        }
     }
 
     private async Task SendPeerInfoAsync(MessageType type, IPEndPoint endpoint)
@@ -513,9 +341,9 @@ public sealed class PeerService : IAsyncDisposable
         {
             await _transport.SendAsync(packet, endpoint).ConfigureAwait(false);
         }
-        catch (SocketException ex) when (IsUnreachable(ex))
+        catch (SocketException exception) when (exception.IsUnreachable())
         {
-            NetworkError?.Invoke(endpoint, ex);
+            _notifications.Post(NetworkErrorHandlers, handler => handler(endpoint, exception));
         }
     }
 
@@ -535,80 +363,89 @@ public sealed class PeerService : IAsyncDisposable
         }
         catch (TimeoutException)
         {
-            UpdateAvailability(DateTimeOffset.UtcNow);
+            UpdateAvailability(_timeProvider.GetTimestamp());
         }
-        catch (SocketException ex) when (IsUnreachable(ex))
+        catch (SocketException exception) when (exception.IsUnreachable())
         {
-            NetworkError?.Invoke(peer.Endpoint, ex);
+            _notifications.Post(NetworkErrorHandlers, handler => handler(peer.Endpoint, exception));
         }
     }
 
-    private static bool IsUnreachable(SocketException ex)
-    {
-        return ex.SocketErrorCode
-            is SocketError.NetworkUnreachable
-                or SocketError.HostUnreachable
-                or SocketError.NetworkDown
-                or SocketError.AddressNotAvailable
-                or SocketError.ConnectionRefused;
-    }
-
-    private void UpdateAvailability(DateTimeOffset now)
+    private void UpdateAvailability(long now)
     {
         List<Peer> changed = [];
         lock (_stateLock)
         {
-            foreach (var peer in _peers.Values.ToArray())
+            foreach (var (deviceId, entry) in _peers.ToArray())
             {
-                var elapsed = now - peer.LastSeen;
+                var peer = entry.Peer;
+                var elapsed = _timeProvider.GetElapsedTime(entry.LastSeen, now);
                 PeerAvailability availability;
 
                 if (elapsed >= ProtocolConstants.PeerTimeout)
+                {
                     availability = PeerAvailability.Offline;
+                }
                 else if (elapsed >= ProtocolConstants.ConnectionTimeout)
+                {
                     availability = PeerAvailability.Unreachable;
+                }
                 else
+                {
                     availability = PeerAvailability.Available;
+                }
 
                 if (availability == peer.Availability)
+                {
                     continue;
+                }
 
                 var updated = peer with { Availability = availability };
-                _peers[peer.DeviceId] = updated;
+                _peers[deviceId] = (updated, entry.LastSeen);
                 changed.Add(updated);
             }
         }
         foreach (var peer in changed)
-            PeerChanged?.Invoke(peer);
+        {
+            _notifications.Post(PeerChanged, handler => handler(peer));
+        }
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        Task? running;
         lock (_stateLock)
         {
-            if (_disposed)
-                return;
-            _disposed = true;
-            running = _runTask;
+            if (_disposeTask is null)
+            {
+                _disposed = true;
+                _disposeTask = DisposeCoreAsync();
+            }
+            return new ValueTask(_disposeTask);
         }
+    }
+
+    private async Task DisposeCoreAsync()
+    {
         _stopCts.Cancel();
         try
         {
-            if (running is not null)
-                await running.ConfigureAwait(false);
+            if (_runTask is not null)
+            {
+                await _runTask.ConfigureAwait(false);
+            }
         }
         catch (OperationCanceledException) when (_stopCts.IsCancellationRequested) { }
         finally
         {
             try
             {
-                await Transfers.DisposeAsync().ConfigureAwait(false);
+                await _fileExchange.DisposeAsync().ConfigureAwait(false);
             }
             finally
             {
                 _transport.Dispose();
                 _stopCts.Dispose();
+                await _notifications.DisposeAsync().ConfigureAwait(false);
             }
         }
     }
