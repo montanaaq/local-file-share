@@ -19,7 +19,7 @@ public class FileTransferServiceTests
         bool expected
     )
     {
-        var directory = Path.Combine(Path.GetTempPath(), $"protocol-chunks-{Guid.NewGuid():N}");
+        string directory = Path.Combine(Path.GetTempPath(), $"protocol-chunks-{Guid.NewGuid():N}");
         try
         {
             await using var service = new FileTransferService();
@@ -30,7 +30,7 @@ public class FileTransferServiceTests
             );
             service.SetIncomingDecision(deviceId, fileId, true, directory);
 
-            var result = service.HandleChunk(
+            bool result = service.HandleChunk(
                 Payloads.EncodeChunk(deviceId, fileId, index, new byte[dataLength])
             );
 
@@ -40,14 +40,16 @@ public class FileTransferServiceTests
         finally
         {
             if (Directory.Exists(directory))
+            {
                 Directory.Delete(directory, recursive: true);
+            }
         }
     }
 
     [Fact]
     public async Task HandleChunk_TracksMissingChunksAndDuplicates_AndCleansUpOnDispose()
     {
-        var directory = Path.Combine(Path.GetTempPath(), $"protocol-chunks-{Guid.NewGuid():N}");
+        string directory = Path.Combine(Path.GetTempPath(), $"protocol-chunks-{Guid.NewGuid():N}");
         try
         {
             await using (var service = new FileTransferService())
@@ -58,7 +60,7 @@ public class FileTransferServiceTests
                     Payloads.EncodeFileOffer(deviceId, fileId, 2500, new byte[32], "test.bin")
                 );
                 service.SetIncomingDecision(deviceId, fileId, true, directory);
-                var first = Payloads.EncodeChunk(deviceId, fileId, 0, new byte[1024]);
+                byte[] first = Payloads.EncodeChunk(deviceId, fileId, 0, new byte[1024]);
 
                 Assert.True(
                     service.HandleChunk(Payloads.EncodeChunk(deviceId, fileId, 2, new byte[452]))
@@ -85,7 +87,9 @@ public class FileTransferServiceTests
         finally
         {
             if (Directory.Exists(directory))
+            {
                 Directory.Delete(directory, recursive: true);
+            }
         }
     }
 
@@ -94,7 +98,7 @@ public class FileTransferServiceTests
     {
         await using var service = new FileTransferService();
         var deviceId = Guid.NewGuid();
-        var hash = new byte[32];
+        byte[] hash = new byte[32];
         var transfer = service.CreateOutgoingTransfer(deviceId, "test.bin", 1, hash);
         var fileId = transfer.FileId;
 
@@ -118,8 +122,8 @@ public class FileTransferServiceTests
         var fileId = Guid.NewGuid();
         FileTransfer? offered = null;
         service.FileOffered += transfer => offered = transfer;
-        var payload = Payloads.EncodeFileOffer(deviceId, fileId, 1, new byte[32], "test.bin");
-        var invalidPayload = (byte[])payload.Clone();
+        byte[] payload = Payloads.EncodeFileOffer(deviceId, fileId, 1, new byte[32], "test.bin");
+        byte[] invalidPayload = (byte[])payload.Clone();
         BinaryPrimitives.WriteUInt64BigEndian(
             invalidPayload.AsSpan(PayloadsConstants.FileSizeOffset),
             (ulong)ProtocolConstants.MaxFileSize + 1
@@ -206,7 +210,7 @@ public class FileTransferServiceTests
     [InlineData(true)]
     public async Task OpenOutgoingFileAsync_ChecksSourceHash_AndRewindsUnchangedFile(bool changed)
     {
-        var path = Path.Combine(Path.GetTempPath(), $"protocol-source-{Guid.NewGuid():N}.bin");
+        string path = Path.Combine(Path.GetTempPath(), $"protocol-source-{Guid.NewGuid():N}.bin");
         try
         {
             await File.WriteAllBytesAsync(path, [1, 2, 3]);
@@ -256,7 +260,7 @@ public class FileTransferServiceTests
     [Fact]
     public async Task HandleChunk_ConcurrentWrites_PreserveProgressAndCleanUp()
     {
-        var directory = Path.Combine(Path.GetTempPath(), $"protocol-chunks-{Guid.NewGuid():N}");
+        string directory = Path.Combine(Path.GetTempPath(), $"protocol-chunks-{Guid.NewGuid():N}");
         try
         {
             await using (var service = new FileTransferService())
@@ -267,7 +271,7 @@ public class FileTransferServiceTests
                     Payloads.EncodeFileOffer(deviceId, fileId, 8192, new byte[32], "test.bin")
                 );
                 service.SetIncomingDecision(deviceId, fileId, true, directory);
-                var chunks = Enumerable
+                byte[][] chunks = Enumerable
                     .Range(0, 8)
                     .Select(index =>
                         Payloads.EncodeChunk(
@@ -295,7 +299,9 @@ public class FileTransferServiceTests
         finally
         {
             if (Directory.Exists(directory))
+            {
                 Directory.Delete(directory, recursive: true);
+            }
         }
     }
 
@@ -334,9 +340,13 @@ public class FileTransferServiceTests
             service.GetTransfer(deviceId, transfer.FileId).State
         );
         if (ok)
+        {
             Assert.Null(failure);
+        }
         else
+        {
             Assert.IsType<InvalidDataException>(failure);
+        }
     }
 
     [Fact]
@@ -366,13 +376,13 @@ public class FileTransferServiceTests
     [Fact]
     public async Task CompleteIncomingTransferAsync_SanitizesPeerName_AndPreservesExistingFile()
     {
-        var directory = Path.Combine(Path.GetTempPath(), $"protocol-save-{Guid.NewGuid():N}");
+        string directory = Path.Combine(Path.GetTempPath(), $"protocol-save-{Guid.NewGuid():N}");
         try
         {
             Directory.CreateDirectory(directory);
             const string fileName = "../../report.bin";
-            var safeName = fileName.SanitizeFileName();
-            var existingPath = Path.Combine(directory, safeName.WithFileSuffix(0));
+            string safeName = fileName.SanitizeFileName();
+            string existingPath = Path.Combine(directory, safeName.WithFileSuffix(0));
             await File.WriteAllBytesAsync(existingPath, [9]);
             byte[] data = [1, 2, 3];
             await using var service = new FileTransferService();
@@ -417,14 +427,16 @@ public class FileTransferServiceTests
         finally
         {
             if (Directory.Exists(directory))
+            {
                 Directory.Delete(directory, recursive: true);
+            }
         }
     }
 
     [Fact]
     public async Task CompleteIncomingTransferAsync_BadHash_FailsAndDeletesPartFile()
     {
-        var directory = Path.Combine(Path.GetTempPath(), $"protocol-save-{Guid.NewGuid():N}");
+        string directory = Path.Combine(Path.GetTempPath(), $"protocol-save-{Guid.NewGuid():N}");
         try
         {
             await using var service = new FileTransferService();
@@ -449,14 +461,16 @@ public class FileTransferServiceTests
         finally
         {
             if (Directory.Exists(directory))
+            {
                 Directory.Delete(directory, recursive: true);
+            }
         }
     }
 
     [Fact]
     public async Task HandleChunk_ConcurrentCancellation_DoesNotThrowOrRetainPartFile()
     {
-        var directory = Path.Combine(Path.GetTempPath(), $"protocol-cancel-{Guid.NewGuid():N}");
+        string directory = Path.Combine(Path.GetTempPath(), $"protocol-cancel-{Guid.NewGuid():N}");
         try
         {
             await using var service = new FileTransferService();
@@ -466,14 +480,16 @@ public class FileTransferServiceTests
                 Payloads.EncodeFileOffer(deviceId, fileId, 1024, new byte[32], "report.bin")
             );
             service.SetIncomingDecision(deviceId, fileId, true, directory);
-            var payload = Payloads.EncodeChunk(deviceId, fileId, 0, new byte[1024]);
+            byte[] payload = Payloads.EncodeChunk(deviceId, fileId, 0, new byte[1024]);
             var writes = Enumerable
                 .Range(0, 16)
                 .Select(_ =>
                     Task.Run(() =>
                     {
-                        for (var index = 0; index < 16; index++)
+                        for (int index = 0; index < 16; index++)
+                        {
                             service.HandleChunk(payload);
+                        }
                     })
                 )
                 .ToArray();
@@ -488,7 +504,9 @@ public class FileTransferServiceTests
         finally
         {
             if (Directory.Exists(directory))
+            {
                 Directory.Delete(directory, recursive: true);
+            }
         }
     }
 

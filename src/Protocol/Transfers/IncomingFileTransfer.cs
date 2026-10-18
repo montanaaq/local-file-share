@@ -24,15 +24,15 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
         _stream = fileStream;
         _fileSize = fileSize;
 
-        var chunkSize = (ulong)ProtocolConstants.ChunkSize;
-        var chunkCount = (int)((fileSize + chunkSize - 1) / chunkSize);
+        ulong chunkSize = (ulong)ProtocolConstants.ChunkSize;
+        int chunkCount = (int)((fileSize + chunkSize - 1) / chunkSize);
         _receivedChunks = new bool[chunkCount];
     }
 
     public static IncomingFileTransfer Create(ulong fileSize, string directory)
     {
         Directory.CreateDirectory(directory);
-        var partPath = Path.Combine(directory, $"{Guid.NewGuid():N}.part");
+        string partPath = Path.Combine(directory, $"{Guid.NewGuid():N}.part");
         var stream = new FileStream(
             partPath,
             FileMode.CreateNew,
@@ -67,26 +67,43 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
 
     public async Task<bool> VerifyAsync(byte[] expectedSha256, CancellationToken ct)
     {
-        ArgumentNullException.ThrowIfNull(expectedSha256);
+        if (expectedSha256 is null)
+        {
+            throw new ArgumentNullException(nameof(expectedSha256), "Value cannot be null");
+        }
+
         if (expectedSha256.Length != PayloadsConstants.Sha256Size)
+        {
             throw new ArgumentException("SHA-256 must contain 32 bytes", nameof(expectedSha256));
+        }
 
         await _fileLock.WaitAsync(ct).ConfigureAwait(false);
 
         try
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(
+                    nameof(IncomingFileTransfer),
+                    "Object has been disposed"
+                );
+            }
+
             _verified = false;
 
             if (NextIndex != (uint)_receivedChunks.Length)
+            {
                 return false;
+            }
 
             await _stream.FlushAsync(ct);
             if ((ulong)_stream.Length != _fileSize)
+            {
                 return false;
+            }
 
             _stream.Position = 0;
-            var actualSha256 = await SHA256.HashDataAsync(_stream, ct).ConfigureAwait(false);
+            byte[] actualSha256 = await SHA256.HashDataAsync(_stream, ct).ConfigureAwait(false);
 
             _verified = actualSha256.AsSpan().SequenceEqual(expectedSha256);
 
@@ -100,30 +117,38 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
 
     public async Task<string> SaveAsync(string fileName, CancellationToken ct)
     {
-        var safeName = fileName.SanitizeFileName();
+        string safeName = fileName.SanitizeFileName();
         await _fileLock.WaitAsync(ct).ConfigureAwait(false);
 
         try
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(
+                    nameof(IncomingFileTransfer),
+                    "Object has been disposed"
+                );
+            }
 
             if (!_verified)
+            {
                 throw new InvalidOperationException("File must be verified before saving");
+            }
 
-            var directory =
+            string directory =
                 Path.GetDirectoryName(_partPath)
-                ?? throw new InvalidOperationException("Part file directory not found");
+                ?? throw new InvalidOperationException("Temporary file directory not found");
 
             ct.ThrowIfCancellationRequested();
             await _stream.DisposeAsync();
             _disposed = true;
 
-            for (var number = 0; ; number++)
+            for (int number = 0; ; number++)
             {
                 ct.ThrowIfCancellationRequested();
 
-                var candidateName = safeName.WithFileSuffix(number);
-                var destinationPath = Path.Combine(directory, candidateName);
+                string candidateName = safeName.WithFileSuffix(number);
+                string destinationPath = Path.Combine(directory, candidateName);
                 try
                 {
                     File.Move(_partPath, destinationPath, overwrite: false);
@@ -178,17 +203,23 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
     private bool TryWriteChunkCore(uint index, ReadOnlySpan<byte> data)
     {
         if (index >= (uint)_receivedChunks.Length)
+        {
             return false;
+        }
 
-        var offset = (long)index * ProtocolConstants.ChunkSize;
-        var remaining = (long)_fileSize - offset;
-        var expectedLength = (int)Math.Min(ProtocolConstants.ChunkSize, remaining);
+        long offset = (long)index * ProtocolConstants.ChunkSize;
+        long remaining = (long)_fileSize - offset;
+        int expectedLength = (int)Math.Min(ProtocolConstants.ChunkSize, remaining);
 
         if (data.Length != expectedLength)
+        {
             return false;
+        }
 
         if (_receivedChunks[(int)index])
+        {
             return true;
+        }
 
         _stream.Position = offset;
 
@@ -198,7 +229,9 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
         _receivedChunks[(int)index] = true;
 
         while (NextIndex < (uint)_receivedChunks.Length && _receivedChunks[(int)NextIndex])
+        {
             NextIndex++;
+        }
 
         return true;
     }

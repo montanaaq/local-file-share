@@ -17,7 +17,9 @@ public sealed class ProcessedMessages
     {
         var key = (deviceId, seq);
         if (!_messages.Add(key))
+        {
             return;
+        }
 
         _order.Enqueue(key);
         if (_order.Count > ProtocolConstants.ProcessedMessagesCapacity)

@@ -6,32 +6,36 @@ namespace Protocol;
 
 public sealed record Packet(MessageType Type, uint Seq, byte[] Payload)
 {
-    public const int HeaderSize = 12; // version(1) type(1) seq(4) length(2) crc(4)
+    public const int HeaderSize = 12; // Version, type, sequence, length and CRC: 1 + 1 + 4 + 2 + 4 bytes.
     public const int MaxPayloadSize =
         PayloadsConstants.ChunkDataOffset + ProtocolConstants.ChunkSize;
 
     public byte[] Serialize()
     {
         if (!Enum.IsDefined(Type))
+        {
             throw new ArgumentException("Unknown message type", nameof(Type));
+        }
 
         if (Payload.Length > MaxPayloadSize)
+        {
             throw new ArgumentException(
-                $"Payload too large: {Payload.Length} > {MaxPayloadSize}",
+                $"Payload size exceeds the maximum allowed size: {Payload.Length} > {MaxPayloadSize}",
                 nameof(Payload)
             );
+        }
 
-        var buf = new byte[HeaderSize + Payload.Length];
-        buf[0] = 1;
-        buf[1] = (byte)Type;
-        BinaryPrimitives.WriteUInt32BigEndian(buf.AsSpan(PacketOffsets.SeqOffset), Seq);
+        byte[] buffer = new byte[HeaderSize + Payload.Length];
+        buffer[0] = 1;
+        buffer[1] = (byte)Type;
+        BinaryPrimitives.WriteUInt32BigEndian(buffer.AsSpan(PacketOffsets.SeqOffset), Seq);
         BinaryPrimitives.WriteUInt16BigEndian(
-            buf.AsSpan(PacketOffsets.LengthOffset),
+            buffer.AsSpan(PacketOffsets.LengthOffset),
             (ushort)Payload.Length
         );
-        Payload.CopyTo(buf, HeaderSize);
-        BinaryPrimitives.WriteUInt32BigEndian(buf.AsSpan(PacketOffsets.CrcOffset), Crc(buf));
-        return buf;
+        Payload.CopyTo(buffer, HeaderSize);
+        BinaryPrimitives.WriteUInt32BigEndian(buffer.AsSpan(PacketOffsets.CrcOffset), Crc(buffer));
+        return buffer;
     }
 
     public static Packet? Parse(ReadOnlySpan<byte> data)
@@ -42,16 +46,22 @@ public sealed record Packet(MessageType Type, uint Seq, byte[] Payload)
             || data[0] != 1
             || !Enum.IsDefined((MessageType)data[1])
         )
+        {
             return null;
+        }
 
         if (
             data.Length
             != HeaderSize + BinaryPrimitives.ReadUInt16BigEndian(data[PacketOffsets.LengthOffset..])
         )
+        {
             return null;
+        }
 
         if (BinaryPrimitives.ReadUInt32BigEndian(data[PacketOffsets.CrcOffset..]) != Crc(data))
+        {
             return null;
+        }
 
         return new Packet(
             (MessageType)data[1],
@@ -62,7 +72,7 @@ public sealed record Packet(MessageType Type, uint Seq, byte[] Payload)
 
     private static uint Crc(ReadOnlySpan<byte> data)
     {
-        var copy = data.ToArray();
+        byte[] copy = data.ToArray();
         copy.AsSpan(PacketOffsets.CrcOffset, sizeof(uint)).Clear();
         return Crc32.HashToUInt32(copy);
     }

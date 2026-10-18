@@ -3,7 +3,7 @@ using System.Threading.Tasks;
 
 namespace Protocol;
 
-// Access to an entry is protected by FileTransferService's state lock.
+// Entry access is protected by the FileTransferService state lock.
 internal sealed class TransferEntry
 {
     public FileTransfer Transfer { get; }
@@ -34,19 +34,26 @@ internal sealed class TransferEntry
     public void Require(TransferDirection direction, TransferState state)
     {
         if (Transfer.Direction != direction)
+        {
             throw new InvalidOperationException($"Transfer direction must be {direction}");
+        }
+
         if (Transfer.State != state)
+        {
             throw new InvalidOperationException($"Transfer state must be {state}");
+        }
     }
 
     public IncomingFileTransfer? ChangeState(TransferState state)
     {
         Transfer.State = state;
         if (!IsFinal)
+        {
             return null;
+        }
 
         OutgoingFile = null;
-        // Keep a received answer available until its waiter consumes it, including a rejection.
+        // Keep the answer, including rejection, until its waiter consumes it.
         if (state != TransferState.Rejected)
         {
             Answer?.TrySetCanceled();

@@ -40,10 +40,12 @@ public class ProcessedMessagesTests
     {
         var messages = new ProcessedMessages();
         var deviceId = Guid.NewGuid();
-        var capacity = (uint)ProtocolConstants.ProcessedMessagesCapacity;
+        uint capacity = (uint)ProtocolConstants.ProcessedMessagesCapacity;
 
         for (uint seq = 0; seq < capacity; seq++)
+        {
             messages.Add(deviceId, seq);
+        }
 
         Assert.True(messages.Contains(deviceId, 0));
 
@@ -51,7 +53,9 @@ public class ProcessedMessagesTests
 
         Assert.False(messages.Contains(deviceId, 0));
         for (uint seq = 1; seq <= capacity; seq++)
+        {
             Assert.True(messages.Contains(deviceId, seq));
+        }
     }
 
     [Fact]
@@ -59,20 +63,26 @@ public class ProcessedMessagesTests
     {
         var messages = new ProcessedMessages();
         var deviceId = Guid.NewGuid();
-        var capacity = (uint)ProtocolConstants.ProcessedMessagesCapacity;
+        uint capacity = (uint)ProtocolConstants.ProcessedMessagesCapacity;
 
         for (uint seq = 0; seq < capacity; seq++)
+        {
             messages.Add(deviceId, seq);
+        }
 
         messages.Add(deviceId, 0);
 
         for (uint seq = 0; seq < capacity; seq++)
+        {
             Assert.True(messages.Contains(deviceId, seq));
+        }
 
         messages.Add(deviceId, capacity);
 
         Assert.False(messages.Contains(deviceId, 0));
         for (uint seq = 1; seq <= capacity; seq++)
+        {
             Assert.True(messages.Contains(deviceId, seq));
+        }
     }
 }

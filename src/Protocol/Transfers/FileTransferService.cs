@@ -21,7 +21,9 @@ internal sealed class FileTransferService : IAsyncDisposable
     {
         var offer = Payloads.DecodeFileOffer(payload);
         if (offer is null)
+        {
             return;
+        }
 
         var key = new TransferKey(offer.Value.DeviceId, offer.Value.FileId);
         FileTransfer fileTransfer;
@@ -29,10 +31,14 @@ internal sealed class FileTransferService : IAsyncDisposable
         lock (_stateLock)
         {
             if (_disposed)
+            {
                 return;
+            }
 
             if (_transfers.ContainsKey(key))
+            {
                 return;
+            }
 
             fileTransfer = new FileTransfer()
             {
@@ -66,7 +72,8 @@ internal sealed class FileTransferService : IAsyncDisposable
     {
         lock (_stateLock)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            ThrowIfDisposed();
+
             var transfer = file.Transfer;
             var key = new TransferKey(transfer.PeerDeviceId, transfer.FileId);
             _transfers.Add(key, new TransferEntry(file));
@@ -82,7 +89,9 @@ internal sealed class FileTransferService : IAsyncDisposable
     {
         ct.ThrowIfCancellationRequested();
         lock (_stateLock)
-            ObjectDisposedException.ThrowIf(_disposed, this);
+        {
+            ThrowIfDisposed();
+        }
 
         var file = await OutgoingFileTransfer
             .PrepareAsync(peerDeviceId, filePath, ct)
@@ -94,7 +103,8 @@ internal sealed class FileTransferService : IAsyncDisposable
     {
         lock (_stateLock)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            ThrowIfDisposed();
+
             return GetEntry(new TransferKey(peerDeviceId, fileId)).Transfer.Snapshot();
         }
     }
@@ -107,11 +117,15 @@ internal sealed class FileTransferService : IAsyncDisposable
         {
             // An operation may finish unwinding after the service has been disposed.
             if (_disposed)
+            {
                 return;
+            }
 
             var entry = GetEntry(key);
             if (entry.IsFinal)
+            {
                 return;
+            }
 
             file = entry.ChangeState(state);
             snapshot = entry.Transfer.Snapshot();
@@ -123,7 +137,9 @@ internal sealed class FileTransferService : IAsyncDisposable
         finally
         {
             if (state == TransferState.Failed && error is not null)
+            {
                 TransferFailed?.Invoke(snapshot, error);
+            }
         }
     }
 
@@ -139,7 +155,7 @@ internal sealed class FileTransferService : IAsyncDisposable
         FileTransfer transfer;
         lock (_stateLock)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            ThrowIfDisposed();
 
             entry = GetEntry(key);
             entry.Require(TransferDirection.Incoming, TransferState.WaitingForAnswer);
@@ -157,7 +173,7 @@ internal sealed class FileTransferService : IAsyncDisposable
         {
             lock (_stateLock)
             {
-                ObjectDisposedException.ThrowIf(_disposed, this);
+                ThrowIfDisposed();
 
                 entry.Require(TransferDirection.Incoming, TransferState.WaitingForAnswer);
 
@@ -177,27 +193,39 @@ internal sealed class FileTransferService : IAsyncDisposable
     {
         var answer = Payloads.DecodeFileAnswer(payload);
         if (answer is null)
+        {
             return false;
+        }
 
         lock (_stateLock)
         {
             if (_disposed)
+            {
                 return false;
+            }
 
             var key = new TransferKey(answer.Value.DeviceId, answer.Value.FileId);
             if (!_transfers.TryGetValue(key, out var entry))
+            {
                 return false;
+            }
 
             var transfer = entry.Transfer;
             if (transfer.Direction != TransferDirection.Outgoing)
+            {
                 return false;
+            }
 
             if (transfer.State != TransferState.WaitingForAnswer)
+            {
                 return false;
+            }
 
             var completion = entry.Answer;
             if (completion is null)
+            {
                 return false;
+            }
 
             if (!answer.Value.Accepted)
             {
@@ -207,7 +235,9 @@ internal sealed class FileTransferService : IAsyncDisposable
             }
 
             if (answer.Value.NextIndex != 0)
+            {
                 return false;
+            }
 
             transfer.NextIndex = answer.Value.NextIndex;
             entry.ChangeState(TransferState.Transferring);
@@ -228,7 +258,8 @@ internal sealed class FileTransferService : IAsyncDisposable
 
         lock (_stateLock)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            ThrowIfDisposed();
+
             entry = GetEntry(key);
             completion =
                 entry.Answer
@@ -238,29 +269,35 @@ internal sealed class FileTransferService : IAsyncDisposable
         {
             return await completion.Task.WaitAsync(ProtocolConstants.FileAnswerTimeout, ct);
         }
-        catch (TimeoutException ex)
+        catch (TimeoutException exception)
         {
-            var answer = StopWaiting(
+            bool? answer = StopWaiting(
                 entry,
                 completion,
                 expectedState: TransferState.WaitingForAnswer,
                 state: TransferState.Failed,
-                ex
+                exception
             );
             if (answer.HasValue)
+            {
                 return answer.Value;
+            }
+
             throw;
         }
         catch (OperationCanceledException)
         {
-            var answer = StopWaiting(
+            bool? answer = StopWaiting(
                 entry,
                 completion,
                 expectedState: TransferState.WaitingForAnswer,
                 state: TransferState.Cancelled
             );
             if (answer.HasValue)
+            {
                 return answer.Value;
+            }
+
             throw;
         }
         finally
@@ -268,7 +305,9 @@ internal sealed class FileTransferService : IAsyncDisposable
             lock (_stateLock)
             {
                 if (entry.Answer == completion)
+                {
                     entry.Answer = null;
+                }
             }
         }
     }
@@ -279,7 +318,8 @@ internal sealed class FileTransferService : IAsyncDisposable
         TaskCompletionSource<bool> completion;
         lock (_stateLock)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            ThrowIfDisposed();
+
             entry = GetEntry(key);
             entry.Require(TransferDirection.Outgoing, TransferState.Transferring);
 
@@ -294,46 +334,60 @@ internal sealed class FileTransferService : IAsyncDisposable
         }
         catch (TimeoutException)
         {
-            var received = StopWaiting(
+            bool? received = StopWaiting(
                 entry,
                 completion,
                 expectedState: TransferState.Transferring,
                 state: TransferState.Paused
             );
             if (received.HasValue)
+            {
                 ok = received.Value;
+            }
             else
+            {
                 throw;
+            }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            var received = StopWaiting(
+            bool? received = StopWaiting(
                 entry,
                 completion,
                 TransferState.Transferring,
                 TransferState.Cancelled
             );
             if (received.HasValue)
+            {
                 ok = received.Value;
+            }
             else
+            {
                 throw;
+            }
         }
         finally
         {
             lock (_stateLock)
             {
                 if (entry.Result == completion)
+                {
                     entry.Result = null;
+                }
             }
         }
         if (ok)
+        {
             SetState(key, TransferState.Completed);
+        }
         else
+        {
             SetState(
                 key,
                 TransferState.Failed,
-                new InvalidDataException("Receiver can not verify or save file")
+                new InvalidDataException("Receiver could not verify or save the file")
             );
+        }
 
         return ok;
     }
@@ -350,15 +404,23 @@ internal sealed class FileTransferService : IAsyncDisposable
         lock (_stateLock)
         {
             if (completion.Task.IsCompletedSuccessfully)
+            {
                 return completion.Task.Result;
+            }
+
             if (_disposed || entry.Transfer.State != expectedState)
+            {
                 return null;
+            }
 
             entry.ChangeState(state);
             snapshot = entry.Transfer.Snapshot();
         }
         if (error is not null)
+        {
             TransferFailed?.Invoke(snapshot, error);
+        }
+
         return null;
     }
 
@@ -366,38 +428,55 @@ internal sealed class FileTransferService : IAsyncDisposable
     {
         var chunk = Payloads.DecodeChunk(payload);
         if (chunk is null)
+        {
             return false;
+        }
+
         var key = new TransferKey(chunk.Value.DeviceId, chunk.Value.FileId);
         TransferEntry entry;
         IncomingFileTransfer incomingFile;
         lock (_stateLock)
         {
             if (_disposed || !_transfers.TryGetValue(key, out var value))
+            {
                 return false;
+            }
+
             entry = value;
             if (entry.Transfer.Direction != TransferDirection.Incoming)
+            {
                 return false;
+            }
 
             if (entry.Transfer.State is TransferState.Verifying or TransferState.Completed)
             {
                 if (chunk.Value.Index >= entry.Transfer.NextIndex)
+                {
                     return false;
-                var remaining = entry.Transfer.FileSize
+                }
+
+                ulong remaining =
+                    entry.Transfer.FileSize
                     - (ulong)chunk.Value.Index * (ulong)ProtocolConstants.ChunkSize;
-                return chunk.Value.Data.Length == (int)Math.Min((ulong)ProtocolConstants.ChunkSize, remaining);
+                return chunk.Value.Data.Length
+                    == (int)Math.Min((ulong)ProtocolConstants.ChunkSize, remaining);
             }
 
-            if (
-                entry.Transfer.State != TransferState.Transferring
-                || entry.IncomingFile is null
-            )
+            if (entry.Transfer.State != TransferState.Transferring || entry.IncomingFile is null)
+            {
                 return false;
+            }
+
             incomingFile = entry.IncomingFile;
         }
         try
         {
-            if (!incomingFile.TryWriteChunk(chunk.Value.Index, chunk.Value.Data, out var nextIndex))
+            if (
+                !incomingFile.TryWriteChunk(chunk.Value.Index, chunk.Value.Data, out uint nextIndex)
+            )
+            {
                 return false;
+            }
 
             lock (_stateLock)
             {
@@ -406,14 +485,17 @@ internal sealed class FileTransferService : IAsyncDisposable
                     || entry.IncomingFile != incomingFile
                     || entry.Transfer.State != TransferState.Transferring
                 )
+                {
                     return false;
+                }
+
                 entry.Transfer.NextIndex = Math.Max(entry.Transfer.NextIndex, nextIndex);
                 return true;
             }
         }
-        catch (IOException ex)
+        catch (IOException exception)
         {
-            SetState(key, TransferState.Failed, ex);
+            SetState(key, TransferState.Failed, exception);
             return false;
         }
     }
@@ -423,27 +505,45 @@ internal sealed class FileTransferService : IAsyncDisposable
         var fileResult = Payloads.DecodeFileResult(payload);
 
         if (fileResult is null)
+        {
             return false;
+        }
 
         lock (_stateLock)
         {
             var key = new TransferKey(fileResult.Value.DeviceId, fileResult.Value.FileId);
 
             if (_disposed || !_transfers.TryGetValue(key, out var entry))
+            {
                 return false;
+            }
+
             if (entry.Transfer.Direction != TransferDirection.Outgoing)
+            {
                 return false;
+            }
+
             if (entry.ReceivedResult.HasValue)
+            {
                 return entry.ReceivedResult.Value == fileResult.Value.Ok;
+            }
+
             if (entry.Transfer.State != TransferState.Transferring)
+            {
                 return false;
+            }
 
             var completion = entry.Result;
             if (completion is null)
+            {
                 return false;
+            }
 
             if (!completion.TrySetResult(fileResult.Value.Ok))
+            {
                 return false;
+            }
+
             entry.ReceivedResult = fileResult.Value.Ok;
             return true;
         }
@@ -453,21 +553,32 @@ internal sealed class FileTransferService : IAsyncDisposable
     {
         var fileDone = Payloads.DecodeFileDone(payload);
         if (fileDone is null)
+        {
             return null;
+        }
 
         var key = new TransferKey(fileDone.Value.DeviceId, fileDone.Value.FileId);
         lock (_stateLock)
         {
             if (!_transfers.TryGetValue(key, out var entry))
+            {
                 return null;
+            }
+
             if (entry.Transfer.Direction != TransferDirection.Incoming)
+            {
                 return null;
+            }
 
             if (entry.IncomingCompletion is not null)
+            {
                 return entry.IncomingCompletion;
+            }
 
             if (entry.Transfer.State != TransferState.Transferring || entry.IncomingFile == null)
+            {
                 return null;
+            }
 
             return CompleteIncomingTransferAsync(key, ct);
         }
@@ -477,22 +588,27 @@ internal sealed class FileTransferService : IAsyncDisposable
     {
         lock (_stateLock)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            ThrowIfDisposed();
+
             var entry = GetEntry(key);
 
             if (entry.Transfer.Direction != TransferDirection.Incoming)
-                throw new InvalidOperationException($"Transfer direction must be Incoming");
+            {
+                throw new InvalidOperationException("Transfer must be incoming");
+            }
 
             if (entry.IncomingCompletion is not null)
+            {
                 return entry.IncomingCompletion;
+            }
 
             entry.Require(TransferDirection.Incoming, TransferState.Transferring);
 
             var incomingFile =
                 entry.IncomingFile
                 ?? throw new InvalidOperationException("Transfer has no incoming file");
-            var expectedSha256 = entry.Transfer.Sha256;
-            var fileName = entry.Transfer.FileName;
+            byte[] expectedSha256 = entry.Transfer.Sha256;
+            string fileName = entry.Transfer.FileName;
 
             entry.ChangeState(TransferState.Verifying);
             entry.IncomingCompletion = Task.Run(() =>
@@ -513,7 +629,9 @@ internal sealed class FileTransferService : IAsyncDisposable
     {
         try
         {
-            var verified = await incomingFile.VerifyAsync(expectedSha256, ct).ConfigureAwait(false);
+            bool verified = await incomingFile
+                .VerifyAsync(expectedSha256, ct)
+                .ConfigureAwait(false);
             if (!verified)
             {
                 SetState(
@@ -532,14 +650,14 @@ internal sealed class FileTransferService : IAsyncDisposable
             SetState(key, TransferState.Cancelled);
             throw;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            SetState(key, TransferState.Failed, ex);
+            SetState(key, TransferState.Failed, exception);
             return false;
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            SetState(key, TransferState.Failed, ex);
+            SetState(key, TransferState.Failed, exception);
             throw;
         }
     }
@@ -549,7 +667,8 @@ internal sealed class FileTransferService : IAsyncDisposable
         OutgoingFileTransfer file;
         lock (_stateLock)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            ThrowIfDisposed();
+
             var entry = GetEntry(key);
             entry.Require(TransferDirection.Outgoing, TransferState.Transferring);
             file =
@@ -562,7 +681,8 @@ internal sealed class FileTransferService : IAsyncDisposable
         {
             lock (_stateLock)
             {
-                ObjectDisposedException.ThrowIf(_disposed, this);
+                ThrowIfDisposed();
+
                 GetEntry(key).Require(TransferDirection.Outgoing, TransferState.Transferring);
             }
             return stream;
@@ -578,13 +698,25 @@ internal sealed class FileTransferService : IAsyncDisposable
     {
         lock (_stateLock)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            ThrowIfDisposed();
+
             var entry = GetEntry(key);
             entry.Require(TransferDirection.Outgoing, TransferState.Transferring);
             var file =
                 entry.OutgoingFile
                 ?? throw new InvalidOperationException("Transfer has no outgoing file");
             file.ConfirmChunk(index);
+        }
+    }
+
+    private void ThrowIfDisposed()
+    {
+        if (_disposed)
+        {
+            throw new ObjectDisposedException(
+                nameof(FileTransferService),
+                "Object has been disposed"
+            );
         }
     }
 
@@ -600,7 +732,10 @@ internal sealed class FileTransferService : IAsyncDisposable
         lock (_stateLock)
         {
             if (_disposed)
+            {
                 return;
+            }
+
             _disposed = true;
             files = [];
             foreach (var entry in _transfers.Values)
@@ -609,9 +744,14 @@ internal sealed class FileTransferService : IAsyncDisposable
                 entry.Result?.TrySetCanceled();
 
                 if (entry.IncomingFile is not null)
+                {
                     files.Add(entry.IncomingFile);
+                }
+
                 if (entry.IncomingCompletion is not null)
+                {
                     incomingCompletions.Add(entry.IncomingCompletion);
+                }
             }
             _transfers.Clear();
         }
@@ -627,9 +767,9 @@ internal sealed class FileTransferService : IAsyncDisposable
             {
                 continue;
             }
-            catch (Exception ex)
+            catch (Exception exception)
             {
-                errors.Add(ex);
+                errors.Add(exception);
             }
         }
 
@@ -639,13 +779,15 @@ internal sealed class FileTransferService : IAsyncDisposable
             {
                 await file.DisposeAsync();
             }
-            catch (Exception ex)
+            catch (Exception exception)
             {
-                errors.Add(ex);
+                errors.Add(exception);
             }
         }
 
         if (errors.Count > 0)
-            throw new AggregateException("Failed to clean up incoming files", errors);
+        {
+            throw new AggregateException("Failed to delete temporary files", errors);
+        }
     }
 }

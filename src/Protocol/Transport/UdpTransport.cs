@@ -50,7 +50,7 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
 
     public int LocalPort => ((IPEndPoint)_socket.LocalEndPoint!).Port;
 
-    public uint NextSeq() => unchecked(Interlocked.Increment(ref _nextSeq) - 1); // unchecked for uint pass
+    public uint NextSeq() => unchecked(Interlocked.Increment(ref _nextSeq) - 1); // Overflow wraps the sequence number to zero.
 
     public int LossRate
     {
@@ -58,30 +58,38 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
         set
         {
             if (value is < 0 or > 100)
+            {
                 throw new ArgumentOutOfRangeException(
                     nameof(value),
                     value,
                     "Loss rate must be between 0 and 100"
                 );
+            }
+
             Volatile.Write(ref _lossRate, value);
         }
     }
 
     public async Task SendAsync(Packet packet, IPEndPoint remote)
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            throw new ObjectDisposedException(nameof(UdpTransport), "Object has been disposed");
+        }
 
-        var bytes = packet.Serialize();
+        byte[] bytes = packet.Serialize();
 
         if (ShouldDropPacket())
+        {
             return;
+        }
 
         await _socket.SendToAsync(bytes.AsMemory(), SocketFlags.None, remote);
     }
 
     public Task SendAckAsync(uint ackedSeq, IPEndPoint remote, Guid deviceId)
     {
-        var payload = Payloads.EncodeAck(deviceId, ackedSeq);
+        byte[] payload = Payloads.EncodeAck(deviceId, ackedSeq);
         var packet = new Packet(MessageType.Ack, NextSeq(), payload);
         return SendAsync(packet, remote);
     }
@@ -92,12 +100,7 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
     )
     {
         var result = await _socket
-            .ReceiveFromAsync(
-                buffer,
-                SocketFlags.None,
-                new IPEndPoint(IPAddress.Any, 0),
-                ct
-            )
+            .ReceiveFromAsync(buffer, SocketFlags.None, new IPEndPoint(IPAddress.Any, 0), ct)
             .ConfigureAwait(false);
 
         var packet = Packet.Parse(buffer.Span[..result.ReceivedBytes]);
@@ -116,37 +119,49 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
             {
                 var (packet, from) = await ReceiveFromSocketAsync(buffer, ct).ConfigureAwait(false);
                 if (packet is null)
+                {
                     continue;
+                }
 
                 if (ShouldDropPacket())
+                {
                     continue;
+                }
 
                 if (packet.Type == MessageType.Ack)
                 {
                     var ack = Payloads.DecodeAck(packet.Payload);
 
                     if (ack is null)
+                    {
                         continue;
+                    }
 
                     var key = (ack.Value.DeviceId, from, ack.Value.AckedSeq);
 
                     if (_pendingAcks.TryGetValue(key, out var completion))
+                    {
                         completion.TrySetResult(true);
+                    }
 
                     continue;
                 }
 
                 if (!Payloads.IsValid(packet.Type, packet.Payload))
+                {
                     continue;
+                }
 
                 if (!_incoming.Writer.TryWrite((packet, from)))
+                {
                     continue;
+                }
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            error = ex;
+            error = exception;
         }
         finally
         {
@@ -160,7 +175,9 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
             }
 
             foreach (var completion in _pendingAcks.Values)
+            {
                 completion.TrySetException(stopError);
+            }
         }
     }
 
@@ -185,32 +202,41 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
 
         lock (_ackLock)
         {
-            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                throw new ObjectDisposedException(nameof(UdpTransport), "Object has been disposed");
+            }
 
             if (_receiveError is not null)
+            {
                 throw new InvalidOperationException("Receive loop has stopped", _receiveError);
+            }
 
             if (!_pendingAcks.TryAdd(key, completion))
+            {
                 throw new InvalidOperationException(
                     $"Already waiting for ACK for seq {packet.Seq}"
                 );
+            }
         }
         try
         {
-            var maxSendAttempts =
+            int maxSendAttempts =
                 packet.Type == MessageType.Heartbeat ? 1 : ProtocolConstants.MaxSendAttempts;
 
-            for (var attempt = 0; attempt < maxSendAttempts; attempt++)
+            for (int attempt = 0; attempt < maxSendAttempts; attempt++)
             {
                 ct.ThrowIfCancellationRequested();
 
                 await SendAsync(packet, remote);
 
                 if (await WaitForAckAsync(completion.Task, ct).ConfigureAwait(false))
+                {
                     return;
+                }
             }
 
-            throw new TimeoutException($"No ACK for seq {packet.Seq}");
+            throw new TimeoutException($"No ACK received for seq {packet.Seq}");
         }
         finally
         {
@@ -233,7 +259,9 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
             return;
+        }
 
         try
         {

@@ -1,4 +1,4 @@
-﻿using System.Buffers.Binary;
+using System.Buffers.Binary;
 using System.IO.Hashing;
 
 namespace Protocol.Tests;
@@ -14,7 +14,7 @@ public class PacketTests
     {
         Assert.Throws<ArgumentException>(() => new Packet((MessageType)type, 0, []).Serialize());
 
-        var bytes = new Packet(MessageType.Ack, 0, []).Serialize();
+        byte[] bytes = new Packet(MessageType.Ack, 0, []).Serialize();
         bytes[1] = type;
         bytes.AsSpan(8, 4).Clear();
         BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(8), Crc32.HashToUInt32(bytes));
@@ -32,7 +32,7 @@ public class PacketTests
     [Fact]
     public void Parse_ReturnsNull_WhenPayloadExceedsLimitWithValidCrc()
     {
-        var bytes = new byte[12 + 1061];
+        byte[] bytes = new byte[12 + 1061];
         bytes[0] = 1;
         bytes[1] = (byte)MessageType.Chunk;
         BinaryPrimitives.WriteUInt16BigEndian(bytes.AsSpan(6), 1061);
@@ -44,7 +44,7 @@ public class PacketTests
     [Fact]
     public void Parse_ReturnsNull_WhenPayloadIsCorrupted()
     {
-        var bytes = new Packet(MessageType.Clipboard, 0, [1, 2, 3]).Serialize();
+        byte[] bytes = new Packet(MessageType.Clipboard, 0, [1, 2, 3]).Serialize();
         bytes[^1] ^= 0xFF;
         Assert.Null(Packet.Parse(bytes));
     }
@@ -52,7 +52,7 @@ public class PacketTests
     [Fact]
     public void Parse_ReturnsNull_WhenVersionIsInvalidWithValidCrc()
     {
-        var bytes = new Packet(MessageType.Ack, 0, []).Serialize();
+        byte[] bytes = new Packet(MessageType.Ack, 0, []).Serialize();
         bytes[0] = 2;
         bytes.AsSpan(8, 4).Clear();
         BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(8), Crc32.HashToUInt32(bytes));
@@ -62,7 +62,7 @@ public class PacketTests
     [Fact]
     public void Parse_ReturnsNull_WhenLengthDoesNotMatch()
     {
-        var bytes = new Packet(MessageType.Clipboard, 0, [1, 2, 3]).Serialize();
+        byte[] bytes = new Packet(MessageType.Clipboard, 0, [1, 2, 3]).Serialize();
         Assert.Null(Packet.Parse(bytes.AsSpan(0, bytes.Length - 1)));
         Assert.Null(Packet.Parse([.. bytes, 0]));
     }
@@ -116,7 +116,10 @@ public class PacketTests
     [Fact]
     public void Parse_ReturnsFullPayload_WhenPayloadIsMaxSize()
     {
-        var longPayload = Enumerable.Range(0, Packet.MaxPayloadSize).Select(i => (byte)i).ToArray();
+        byte[] longPayload = Enumerable
+            .Range(0, Packet.MaxPayloadSize)
+            .Select(i => (byte)i)
+            .ToArray();
         var originalPacket = new Packet(MessageType.Chunk, 42, longPayload);
         var parsedPacket = Packet.Parse(originalPacket.Serialize());
 
@@ -129,7 +132,7 @@ public class PacketTests
     [InlineData(1)]
     public void Parse_ReturnsNull_WhenBufferIsShorterThanHeader(int length)
     {
-        var buffer = new byte[length];
+        byte[] buffer = new byte[length];
 
         var parsedPacket = Packet.Parse(buffer);
 
@@ -143,20 +146,20 @@ public class PacketTests
         byte[] expected =
         [
             0x01,
-            0x30, // version, type
+            0x30, // Version and type
             0x00,
             0x00,
             0x00,
-            0x2A, // seq = 42
+            0x2A, // Sequence number: 42
             0x00,
-            0x03, // length = 3
+            0x03, // Length: 3
             0xB9,
             0xF3,
             0x51,
-            0x4E, // crc
+            0x4E, // Checksum
             0x01,
             0x02,
-            0x03, // payload
+            0x03, // Payload
         ];
         Assert.Equal(expected, packet.Serialize());
     }

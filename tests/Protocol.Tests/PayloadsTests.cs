@@ -9,13 +9,13 @@ public class PayloadsTests
     {
         var deviceId = Guid.Parse("00112233445566778899AABBCCDDEEFF");
         var fileId = Guid.Parse("FFEEDDCCBBAA99887766554433221100");
-        var index = 0x01020304u;
+        uint index = 0x01020304u;
         byte[] data = [0xAA, 0xBB];
-        var expected = Convert.FromHexString(
+        byte[] expected = Convert.FromHexString(
             "00112233445566778899AABBCCDDEEFF" + "FFEEDDCCBBAA99887766554433221100" + "01020304AABB"
         );
 
-        var encoded = Payloads.EncodeChunk(deviceId, fileId, index, data);
+        byte[] encoded = Payloads.EncodeChunk(deviceId, fileId, index, data);
 
         Assert.Equal(expected, encoded);
 
@@ -32,10 +32,10 @@ public class PayloadsTests
     public void EncodeDecodeAck_ProducesExpectedBytesAndFields()
     {
         var deviceId = Guid.Parse("00112233445566778899AABBCCDDEEFF");
-        var ackedSeq = 0x01020304u;
-        var expected = Convert.FromHexString("00112233445566778899AABBCCDDEEFF01020304");
+        uint ackedSeq = 0x01020304u;
+        byte[] expected = Convert.FromHexString("00112233445566778899AABBCCDDEEFF01020304");
 
-        var encoded = Payloads.EncodeAck(deviceId, ackedSeq);
+        byte[] encoded = Payloads.EncodeAck(deviceId, ackedSeq);
 
         Assert.Equal(expected, encoded);
 
@@ -72,7 +72,7 @@ public class PayloadsTests
     [Fact]
     public void EncodeDecodeChunk_FitsMaximumPacket_WhenDataIs1024Bytes()
     {
-        var encoded = Payloads.EncodeChunk(Guid.NewGuid(), Guid.NewGuid(), 0, new byte[1024]);
+        byte[] encoded = Payloads.EncodeChunk(Guid.NewGuid(), Guid.NewGuid(), 0, new byte[1024]);
         var decoded = Payloads.DecodeChunk(encoded);
 
         Assert.NotNull(decoded);
@@ -86,10 +86,10 @@ public class PayloadsTests
     {
         var deviceId = Guid.Parse("00112233445566778899AABBCCDDEEFF");
         var fileId = Guid.Parse("FFEEDDCCBBAA99887766554433221100");
-        var size = 0x010203ul;
+        ulong size = 0x010203ul;
         byte[] sha256 = new byte[32];
-        var name = "a.txt";
-        var expected = Convert.FromHexString(
+        string name = "a.txt";
+        byte[] expected = Convert.FromHexString(
             "00112233445566778899AABBCCDDEEFF"
                 + "FFEEDDCCBBAA99887766554433221100"
                 + "0000000000010203"
@@ -97,7 +97,7 @@ public class PayloadsTests
                 + "05612E747874"
         );
 
-        var encoded = Payloads.EncodeFileOffer(deviceId, fileId, size, sha256, name);
+        byte[] encoded = Payloads.EncodeFileOffer(deviceId, fileId, size, sha256, name);
 
         Assert.Equal(expected, encoded);
 
@@ -116,7 +116,7 @@ public class PayloadsTests
     [InlineData(20971520ul)]
     public void EncodeDecodeFileOffer_KeepsBoundarySizeAndUtf8Name(ulong size)
     {
-        var encoded = Payloads.EncodeFileOffer(
+        byte[] encoded = Payloads.EncodeFileOffer(
             Guid.NewGuid(),
             Guid.NewGuid(),
             size,
@@ -142,7 +142,7 @@ public class PayloadsTests
                 "a.txt"
             )
         );
-        var encoded = Payloads.EncodeFileOffer(
+        byte[] encoded = Payloads.EncodeFileOffer(
             Guid.NewGuid(),
             Guid.NewGuid(),
             1,
@@ -168,7 +168,7 @@ public class PayloadsTests
     [Fact]
     public void DecodeFileOffer_ReturnsNull_WhenNameIsInvalidUtf8()
     {
-        var encoded = Payloads.EncodeFileOffer(
+        byte[] encoded = Payloads.EncodeFileOffer(
             Guid.NewGuid(),
             Guid.NewGuid(),
             1,
@@ -182,7 +182,7 @@ public class PayloadsTests
     [Fact]
     public void DecodeFileOffer_ReturnsNull_WhenBufferIsTruncated()
     {
-        var encoded = Payloads.EncodeFileOffer(
+        byte[] encoded = Payloads.EncodeFileOffer(
             Guid.NewGuid(),
             Guid.NewGuid(),
             1,
@@ -199,7 +199,7 @@ public class PayloadsTests
         var deviceId = Guid.NewGuid();
         var fileId = Guid.NewGuid();
         byte[] data = [1, 2, 3];
-        var encoded = Payloads.EncodeChunk(deviceId, fileId, 5, data);
+        byte[] encoded = Payloads.EncodeChunk(deviceId, fileId, 5, data);
         var decoded = Payloads.DecodeChunk(encoded);
 
         Assert.NotNull(decoded);
@@ -224,8 +224,8 @@ public class PayloadsTests
     {
         var deviceId = Guid.NewGuid();
         var fileId = Guid.NewGuid();
-        var sha256 = Enumerable.Range(0, 32).Select(i => (byte)i).ToArray();
-        var encoded = Payloads.EncodeFileOffer(deviceId, fileId, 123456, sha256, "photo.jpg");
+        byte[] sha256 = Enumerable.Range(0, 32).Select(i => (byte)i).ToArray();
+        byte[] encoded = Payloads.EncodeFileOffer(deviceId, fileId, 123456, sha256, "photo.jpg");
         var decoded = Payloads.DecodeFileOffer(encoded);
 
         Assert.NotNull(decoded);
@@ -239,7 +239,7 @@ public class PayloadsTests
     [Fact]
     public void DecodeFileOffer_ReturnsNull_WhenExtraBytesAtEnd()
     {
-        var encoded = Payloads.EncodeFileOffer(
+        byte[] encoded = Payloads.EncodeFileOffer(
             Guid.NewGuid(),
             Guid.NewGuid(),
             1,
@@ -265,7 +265,7 @@ public class PayloadsTests
     [Fact]
     public void EncodeFileOffer_Throws_WhenNameIsTooLong()
     {
-        var name = new string('a', PayloadsConstants.MaxNameBytes + 1);
+        string name = new string('a', PayloadsConstants.MaxNameBytes + 1);
 
         Assert.Throws<ArgumentException>(() =>
             Payloads.EncodeFileOffer(Guid.NewGuid(), Guid.NewGuid(), 1, new byte[32], name)
@@ -275,8 +275,8 @@ public class PayloadsTests
     [Fact]
     public void FileOffer_UsesUtf8ByteCountForNameLimit()
     {
-        var name = new string('а', 127) + "a";
-        var encoded = Payloads.EncodeFileOffer(
+        string name = new string('а', 127) + "a";
+        byte[] encoded = Payloads.EncodeFileOffer(
             Guid.NewGuid(),
             Guid.NewGuid(),
             1,
@@ -303,9 +303,9 @@ public class PayloadsTests
     public void EncodeDecodeHeartbeat_ProducesExpectedBytesAndFields()
     {
         var deviceId = Guid.Parse("00112233445566778899AABBCCDDEEFF");
-        var expected = Convert.FromHexString("00112233445566778899AABBCCDDEEFF");
+        byte[] expected = Convert.FromHexString("00112233445566778899AABBCCDDEEFF");
 
-        var encoded = Payloads.EncodeHeartbeat(deviceId);
+        byte[] encoded = Payloads.EncodeHeartbeat(deviceId);
 
         Assert.Equal(expected, encoded);
 
@@ -332,9 +332,9 @@ public class PayloadsTests
     public void EncodeDecodePeerInfo_ProducesExpectedBytesAndFields()
     {
         var deviceId = Guid.Parse("00112233445566778899AABBCCDDEEFF");
-        var expected = Convert.FromHexString("00112233445566778899AABBCCDDEEFF" + "025043");
+        byte[] expected = Convert.FromHexString("00112233445566778899AABBCCDDEEFF" + "025043");
 
-        var encoded = Payloads.EncodePeerInfo(deviceId, "PC");
+        byte[] encoded = Payloads.EncodePeerInfo(deviceId, "PC");
 
         Assert.Equal(expected, encoded);
 
@@ -353,7 +353,7 @@ public class PayloadsTests
     [InlineData("01FF")]
     public void DecodePeerInfo_ReturnsNull_WhenPayloadIsInvalid(string suffix)
     {
-        var payload = Convert.FromHexString("00112233445566778899AABBCCDDEEFF" + suffix);
+        byte[] payload = Convert.FromHexString("00112233445566778899AABBCCDDEEFF" + suffix);
 
         Assert.Null(Payloads.DecodePeerInfo(payload));
     }
@@ -362,9 +362,9 @@ public class PayloadsTests
     public void PeerInfo_UsesUtf8ByteCountForNameLimit()
     {
         var deviceId = Guid.NewGuid();
-        var name = new string('а', 127) + "a";
+        string name = new string('а', 127) + "a";
 
-        var encoded = Payloads.EncodePeerInfo(deviceId, name);
+        byte[] encoded = Payloads.EncodePeerInfo(deviceId, name);
         var decoded = Payloads.DecodePeerInfo(encoded);
 
         Assert.Equal(255, encoded[PayloadsConstants.PeerNameLengthOffset]);
@@ -387,16 +387,16 @@ public class PayloadsTests
     {
         var deviceId = Guid.Parse("00112233445566778899AABBCCDDEEFF");
         var fileId = Guid.Parse("FFEEDDCCBBAA99887766554433221100");
-        var nextIndex = 0x01020304u;
+        uint nextIndex = 0x01020304u;
 
-        var expected = Convert.FromHexString(
+        byte[] expected = Convert.FromHexString(
             "00112233445566778899AABBCCDDEEFF"
                 + "FFEEDDCCBBAA99887766554433221100"
                 + acceptedHex
                 + "01020304"
         );
 
-        var encoded = Payloads.EncodeFileAnswer(deviceId, fileId, accepted, nextIndex);
+        byte[] encoded = Payloads.EncodeFileAnswer(deviceId, fileId, accepted, nextIndex);
 
         Assert.Equal(expected, encoded);
 
@@ -427,7 +427,7 @@ public class PayloadsTests
     [InlineData(255)]
     public void DecodeFileAnswer_ReturnsNull_WhenAcceptedIsInvalid(byte accepted)
     {
-        var payload = Payloads.EncodeFileAnswer(Guid.NewGuid(), Guid.NewGuid(), true, 0);
+        byte[] payload = Payloads.EncodeFileAnswer(Guid.NewGuid(), Guid.NewGuid(), true, 0);
 
         payload[PayloadsConstants.AcceptedOffset] = accepted;
 
@@ -439,11 +439,11 @@ public class PayloadsTests
     {
         var deviceId = Guid.Parse("00112233445566778899AABBCCDDEEFF");
         var fileId = Guid.Parse("FFEEDDCCBBAA99887766554433221100");
-        var expected = Convert.FromHexString(
+        byte[] expected = Convert.FromHexString(
             "00112233445566778899AABBCCDDEEFF" + "FFEEDDCCBBAA99887766554433221100"
         );
 
-        var encoded = Payloads.EncodeFileDone(deviceId, fileId);
+        byte[] encoded = Payloads.EncodeFileDone(deviceId, fileId);
 
         Assert.Equal(expected, encoded);
 
@@ -474,13 +474,11 @@ public class PayloadsTests
     {
         var deviceId = Guid.Parse("00112233445566778899AABBCCDDEEFF");
         var fileId = Guid.Parse("FFEEDDCCBBAA99887766554433221100");
-        var expected = Convert.FromHexString(
-            "00112233445566778899AABBCCDDEEFF"
-                + "FFEEDDCCBBAA99887766554433221100"
-                + okHex
+        byte[] expected = Convert.FromHexString(
+            "00112233445566778899AABBCCDDEEFF" + "FFEEDDCCBBAA99887766554433221100" + okHex
         );
 
-        var encoded = Payloads.EncodeFileResult(deviceId, fileId, ok);
+        byte[] encoded = Payloads.EncodeFileResult(deviceId, fileId, ok);
 
         Assert.Equal(expected, encoded);
 
@@ -509,7 +507,7 @@ public class PayloadsTests
     [InlineData(255)]
     public void DecodeFileResult_ReturnsNull_WhenOkIsInvalid(byte ok)
     {
-        var payload = Payloads.EncodeFileResult(Guid.NewGuid(), Guid.NewGuid(), true);
+        byte[] payload = Payloads.EncodeFileResult(Guid.NewGuid(), Guid.NewGuid(), true);
 
         payload[PayloadsConstants.OkOffset] = ok;
 
@@ -523,9 +521,9 @@ public class PayloadsTests
     public void EncodeDecodeClipboard_ProducesExpectedBytesAndFields(string text, string textHex)
     {
         var deviceId = Guid.Parse("00112233445566778899AABBCCDDEEFF");
-        var expected = Convert.FromHexString("00112233445566778899AABBCCDDEEFF" + textHex);
+        byte[] expected = Convert.FromHexString("00112233445566778899AABBCCDDEEFF" + textHex);
 
-        var encoded = Payloads.EncodeClipboard(deviceId, text);
+        byte[] encoded = Payloads.EncodeClipboard(deviceId, text);
 
         Assert.Equal(expected, encoded);
 
@@ -540,9 +538,9 @@ public class PayloadsTests
     public void Clipboard_UsesUtf8ByteCountForTextLimit()
     {
         var deviceId = Guid.NewGuid();
-        var text = new string('а', 500);
+        string text = new string('а', 500);
 
-        var encoded = Payloads.EncodeClipboard(deviceId, text);
+        byte[] encoded = Payloads.EncodeClipboard(deviceId, text);
         var decoded = Payloads.DecodeClipboard(encoded);
 
         Assert.Equal(1016, encoded.Length);
@@ -550,9 +548,7 @@ public class PayloadsTests
         Assert.Equal(deviceId, decoded.Value.DeviceId);
         Assert.Equal(text, decoded.Value.Text);
 
-        Assert.Throws<ArgumentException>(() =>
-            Payloads.EncodeClipboard(deviceId, text + "a")
-        );
+        Assert.Throws<ArgumentException>(() => Payloads.EncodeClipboard(deviceId, text + "a"));
     }
 
     [Theory]
@@ -572,7 +568,7 @@ public class PayloadsTests
     [InlineData("D0")]
     public void DecodeClipboard_ReturnsNull_WhenTextIsInvalidUtf8(string textHex)
     {
-        var payload = Convert.FromHexString("00112233445566778899AABBCCDDEEFF" + textHex);
+        byte[] payload = Convert.FromHexString("00112233445566778899AABBCCDDEEFF" + textHex);
         var decoded = Payloads.DecodeClipboard(payload);
 
         Assert.Null(decoded);

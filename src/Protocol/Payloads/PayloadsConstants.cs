@@ -19,25 +19,25 @@ public static class PayloadsConstants
     public const int IndexOffset = FileIdOffset + FileIdSize;
     public const int ChunkDataOffset = IndexOffset + IndexSize;
 
-    // FILE OFFER
+    // FILE_OFFER
     public const int FileSizeOffset = FileIdOffset + FileIdSize;
     public const int Sha256Offset = FileSizeOffset + FileSizeSize;
     public const int NameLengthOffset = Sha256Offset + Sha256Size;
     public const int NameOffset = NameLengthOffset + NameLengthSize;
 
-    // PEER INFO
+    // PEER_INFO
     public const int PeerNameLengthOffset = DeviceIdSize;
     public const int PeerNameOffset = PeerNameLengthOffset + NameLengthSize;
 
-    // FILE ANSWER
-    public const int AcceptedOffset = FileIdOffset + FileIdSize; // 32
-    public const int NextIndexOffset = AcceptedOffset + sizeof(byte); // 33
-    public const int FileAnswerSize = NextIndexOffset + sizeof(uint); // 37
+    // FILE_ANSWER
+    public const int AcceptedOffset = FileIdOffset + FileIdSize;
+    public const int NextIndexOffset = AcceptedOffset + sizeof(byte);
+    public const int FileAnswerSize = NextIndexOffset + sizeof(uint);
 
-    // FILE DONE
+    // FILE_DONE
     public const int FileDoneSize = FileIdOffset + FileIdSize;
 
-    // FILE RESULT
+    // FILE_RESULT
     public const int OkOffset = FileIdOffset + FileIdSize;
     public const int FileResultSize = OkOffset + sizeof(byte);
 

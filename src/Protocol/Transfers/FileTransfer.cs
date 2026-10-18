@@ -13,15 +13,16 @@ public class FileTransfer
     public TransferState State { get; set; }
     public uint NextIndex { get; set; }
 
-    internal FileTransfer Snapshot() => new()
-    {
-        FileId = FileId,
-        PeerDeviceId = PeerDeviceId,
-        FileName = FileName,
-        FileSize = FileSize,
-        Sha256 = (byte[])Sha256.Clone(),
-        Direction = Direction,
-        State = State,
-        NextIndex = NextIndex,
-    };
+    internal FileTransfer Snapshot() =>
+        new()
+        {
+            FileId = FileId,
+            PeerDeviceId = PeerDeviceId,
+            FileName = FileName,
+            FileSize = FileSize,
+            Sha256 = (byte[])Sha256.Clone(),
+            Direction = Direction,
+            State = State,
+            NextIndex = NextIndex,
+        };
 }

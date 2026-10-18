@@ -10,26 +10,28 @@ public static class Payloads
 
     public static byte[] EncodeAck(Guid deviceId, uint ackedSeq)
     {
-        var buf = new byte[PayloadsConstants.AckSize];
+        byte[] buffer = new byte[PayloadsConstants.AckSize];
         deviceId.TryWriteBytes(
-            buf.AsSpan(0, PayloadsConstants.DeviceIdSize),
+            buffer.AsSpan(0, PayloadsConstants.DeviceIdSize),
             bigEndian: true,
             out _
         );
         BinaryPrimitives.WriteUInt32BigEndian(
-            buf.AsSpan(PayloadsConstants.AckedSeqOffset),
+            buffer.AsSpan(PayloadsConstants.AckedSeqOffset),
             ackedSeq
         );
-        return buf;
+        return buffer;
     }
 
     public static (Guid DeviceId, uint AckedSeq)? DecodeAck(ReadOnlySpan<byte> payload)
     {
         if (payload.Length != PayloadsConstants.AckSize)
+        {
             return null;
+        }
 
         var deviceId = new Guid(payload[..PayloadsConstants.DeviceIdSize], bigEndian: true);
-        var ackedSeq = BinaryPrimitives.ReadUInt32BigEndian(
+        uint ackedSeq = BinaryPrimitives.ReadUInt32BigEndian(
             payload[PayloadsConstants.AckedSeqOffset..]
         );
 
@@ -44,14 +46,16 @@ public static class Payloads
     )
     {
         if (data.Length > ProtocolConstants.ChunkSize)
+        {
             throw new ArgumentException("Chunk data exceeds 1024 bytes", nameof(data));
+        }
 
-        var buf = new byte[PayloadsConstants.ChunkDataOffset + data.Length];
-        WriteFileIds(buf, deviceId, fileId);
+        byte[] buffer = new byte[PayloadsConstants.ChunkDataOffset + data.Length];
+        WriteFileIds(buffer, deviceId, fileId);
 
-        BinaryPrimitives.WriteUInt32BigEndian(buf.AsSpan(PayloadsConstants.IndexOffset), index);
-        data.CopyTo(buf.AsSpan(PayloadsConstants.ChunkDataOffset));
-        return buf;
+        BinaryPrimitives.WriteUInt32BigEndian(buffer.AsSpan(PayloadsConstants.IndexOffset), index);
+        data.CopyTo(buffer.AsSpan(PayloadsConstants.ChunkDataOffset));
+        return buffer;
     }
 
     public static (Guid DeviceId, Guid FileId, uint Index, byte[] Data)? DecodeChunk(
@@ -62,11 +66,13 @@ public static class Payloads
             payload.Length < PayloadsConstants.ChunkDataOffset
             || payload.Length > Packet.MaxPayloadSize
         )
+        {
             return null;
+        }
 
         var (deviceId, fileId) = GetFileIds(payload);
-        var index = BinaryPrimitives.ReadUInt32BigEndian(payload[PayloadsConstants.IndexOffset..]);
-        var data = payload[PayloadsConstants.ChunkDataOffset..].ToArray();
+        uint index = BinaryPrimitives.ReadUInt32BigEndian(payload[PayloadsConstants.IndexOffset..]);
+        byte[] data = payload[PayloadsConstants.ChunkDataOffset..].ToArray();
 
         return (deviceId, fileId, index, data);
     }
@@ -79,27 +85,41 @@ public static class Payloads
         string name
     )
     {
-        var nameBytes = Utf8.GetBytes(name);
+        byte[] nameBytes = Utf8.GetBytes(name);
 
         if (sha256.Length != PayloadsConstants.Sha256Size)
-            throw new ArgumentException("SHA-256 must be 32 bytes", nameof(sha256));
+        {
+            throw new ArgumentException("SHA-256 must contain 32 bytes", nameof(sha256));
+        }
 
         if (nameBytes.Length == 0 || nameBytes.Length > PayloadsConstants.MaxNameBytes)
+        {
             throw new ArgumentException(
                 "File name must contain 1 to 255 UTF-8 bytes",
                 nameof(name)
             );
+        }
 
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(size, (ulong)ProtocolConstants.MaxFileSize);
+        if (size > ProtocolConstants.MaxFileSize)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(size),
+                size,
+                "File size exceeds the maximum allowed size"
+            );
+        }
 
-        var buf = new byte[PayloadsConstants.NameOffset + nameBytes.Length];
-        WriteFileIds(buf, deviceId, fileId);
+        byte[] buffer = new byte[PayloadsConstants.NameOffset + nameBytes.Length];
+        WriteFileIds(buffer, deviceId, fileId);
 
-        BinaryPrimitives.WriteUInt64BigEndian(buf.AsSpan(PayloadsConstants.FileSizeOffset), size);
-        sha256.CopyTo(buf, PayloadsConstants.Sha256Offset);
-        buf[PayloadsConstants.NameLengthOffset] = (byte)nameBytes.Length;
-        nameBytes.CopyTo(buf, PayloadsConstants.NameOffset);
-        return buf;
+        BinaryPrimitives.WriteUInt64BigEndian(
+            buffer.AsSpan(PayloadsConstants.FileSizeOffset),
+            size
+        );
+        sha256.CopyTo(buffer, PayloadsConstants.Sha256Offset);
+        buffer[PayloadsConstants.NameLengthOffset] = (byte)nameBytes.Length;
+        nameBytes.CopyTo(buffer, PayloadsConstants.NameOffset);
+        return buffer;
     }
 
     public static (
@@ -111,17 +131,23 @@ public static class Payloads
     )? DecodeFileOffer(ReadOnlySpan<byte> payload)
     {
         if (payload.Length < PayloadsConstants.NameOffset)
+        {
             return null;
+        }
 
-        var nameLength = payload[PayloadsConstants.NameLengthOffset];
+        byte nameLength = payload[PayloadsConstants.NameLengthOffset];
         if (nameLength == 0 || payload.Length != PayloadsConstants.NameOffset + nameLength)
+        {
             return null;
+        }
 
-        var size = BinaryPrimitives.ReadUInt64BigEndian(
+        ulong size = BinaryPrimitives.ReadUInt64BigEndian(
             payload[PayloadsConstants.FileSizeOffset..]
         );
         if (size > ProtocolConstants.MaxFileSize)
+        {
             return null;
+        }
 
         string name;
         try
@@ -134,7 +160,7 @@ public static class Payloads
         }
 
         var (deviceId, fileId) = GetFileIds(payload);
-        var sha256 = payload
+        byte[] sha256 = payload
             .Slice(PayloadsConstants.Sha256Offset, PayloadsConstants.Sha256Size)
             .ToArray();
 
@@ -143,22 +169,24 @@ public static class Payloads
 
     public static byte[] EncodeHeartbeat(Guid deviceId)
     {
-        var buf = new byte[PayloadsConstants.DeviceIdSize];
-        deviceId.TryWriteBytes(buf, bigEndian: true, out _);
-        return buf;
+        byte[] buffer = new byte[PayloadsConstants.DeviceIdSize];
+        deviceId.TryWriteBytes(buffer, bigEndian: true, out _);
+        return buffer;
     }
 
     public static Guid? DecodeHeartbeat(ReadOnlySpan<byte> payload)
     {
         if (payload.Length != PayloadsConstants.DeviceIdSize)
+        {
             return null;
+        }
 
         return new Guid(payload, bigEndian: true);
     }
 
     public static byte[] EncodePeerInfo(Guid deviceId, string name)
     {
-        var nameBytes = Utf8.GetBytes(name);
+        byte[] nameBytes = Utf8.GetBytes(name);
         if (nameBytes.Length is < 1 or > PayloadsConstants.MaxNameBytes)
         {
             throw new ArgumentException(
@@ -167,26 +195,30 @@ public static class Payloads
             );
         }
 
-        var buf = new byte[PayloadsConstants.PeerNameOffset + nameBytes.Length];
-        buf[PayloadsConstants.PeerNameLengthOffset] = (byte)nameBytes.Length;
+        byte[] buffer = new byte[PayloadsConstants.PeerNameOffset + nameBytes.Length];
+        buffer[PayloadsConstants.PeerNameLengthOffset] = (byte)nameBytes.Length;
         deviceId.TryWriteBytes(
-            buf.AsSpan(0, PayloadsConstants.DeviceIdSize),
+            buffer.AsSpan(0, PayloadsConstants.DeviceIdSize),
             bigEndian: true,
             out _
         );
 
-        nameBytes.CopyTo(buf, PayloadsConstants.PeerNameOffset);
-        return buf;
+        nameBytes.CopyTo(buffer, PayloadsConstants.PeerNameOffset);
+        return buffer;
     }
 
     public static (Guid DeviceId, string Name)? DecodePeerInfo(ReadOnlySpan<byte> payload)
     {
         if (payload.Length < PayloadsConstants.PeerNameOffset)
+        {
             return null;
+        }
 
-        var nameLength = payload[PayloadsConstants.PeerNameLengthOffset];
+        byte nameLength = payload[PayloadsConstants.PeerNameLengthOffset];
         if (nameLength == 0 || payload.Length != PayloadsConstants.PeerNameOffset + nameLength)
+        {
             return null;
+        }
 
         string name;
         try
@@ -205,16 +237,16 @@ public static class Payloads
 
     public static byte[] EncodeFileAnswer(Guid deviceId, Guid fileId, bool accepted, uint nextIndex)
     {
-        var buf = new byte[PayloadsConstants.FileAnswerSize];
-        WriteFileIds(buf, deviceId, fileId);
+        byte[] buffer = new byte[PayloadsConstants.FileAnswerSize];
+        WriteFileIds(buffer, deviceId, fileId);
 
-        buf[PayloadsConstants.AcceptedOffset] = accepted ? (byte)1 : (byte)0;
+        buffer[PayloadsConstants.AcceptedOffset] = accepted ? (byte)1 : (byte)0;
         BinaryPrimitives.WriteUInt32BigEndian(
-            buf.AsSpan(PayloadsConstants.NextIndexOffset),
+            buffer.AsSpan(PayloadsConstants.NextIndexOffset),
             nextIndex
         );
 
-        return buf;
+        return buffer;
     }
 
     public static (Guid DeviceId, Guid FileId, bool Accepted, uint NextIndex)? DecodeFileAnswer(
@@ -222,13 +254,18 @@ public static class Payloads
     )
     {
         if (payload.Length != PayloadsConstants.FileAnswerSize)
+        {
             return null;
+        }
+
         if (payload[PayloadsConstants.AcceptedOffset] > 1)
+        {
             return null;
+        }
 
         var (deviceId, fileId) = GetFileIds(payload);
-        var accepted = payload[PayloadsConstants.AcceptedOffset] == 1;
-        var nextIndex = BinaryPrimitives.ReadUInt32BigEndian(
+        bool accepted = payload[PayloadsConstants.AcceptedOffset] == 1;
+        uint nextIndex = BinaryPrimitives.ReadUInt32BigEndian(
             payload[PayloadsConstants.NextIndexOffset..]
         );
 
@@ -237,15 +274,17 @@ public static class Payloads
 
     public static byte[] EncodeFileDone(Guid deviceId, Guid fileId)
     {
-        var buf = new byte[PayloadsConstants.FileDoneSize];
-        WriteFileIds(buf, deviceId, fileId);
-        return buf;
+        byte[] buffer = new byte[PayloadsConstants.FileDoneSize];
+        WriteFileIds(buffer, deviceId, fileId);
+        return buffer;
     }
 
     public static (Guid DeviceId, Guid FileId)? DecodeFileDone(ReadOnlySpan<byte> payload)
     {
         if (payload.Length != PayloadsConstants.FileDoneSize)
+        {
             return null;
+        }
 
         var (deviceId, fileId) = GetFileIds(payload);
 
@@ -254,11 +293,11 @@ public static class Payloads
 
     public static byte[] EncodeFileResult(Guid deviceId, Guid fileId, bool ok)
     {
-        var buf = new byte[PayloadsConstants.FileResultSize];
-        WriteFileIds(buf, deviceId, fileId);
-        buf[PayloadsConstants.OkOffset] = ok ? (byte)1 : (byte)0;
+        byte[] buffer = new byte[PayloadsConstants.FileResultSize];
+        WriteFileIds(buffer, deviceId, fileId);
+        buffer[PayloadsConstants.OkOffset] = ok ? (byte)1 : (byte)0;
 
-        return buf;
+        return buffer;
     }
 
     public static (Guid DeviceId, Guid FileId, bool Ok)? DecodeFileResult(
@@ -266,31 +305,36 @@ public static class Payloads
     )
     {
         if (payload.Length != PayloadsConstants.FileResultSize)
+        {
             return null;
+        }
+
         if (payload[PayloadsConstants.OkOffset] > 1)
+        {
             return null;
+        }
 
         var (deviceId, fileId) = GetFileIds(payload);
-        var ok = payload[PayloadsConstants.OkOffset] == 1;
+        bool ok = payload[PayloadsConstants.OkOffset] == 1;
 
         return (deviceId, fileId, ok);
     }
 
     public static byte[] EncodeClipboard(Guid deviceId, string text)
     {
-        var textBytes = Utf8.GetBytes(text);
+        byte[] textBytes = Utf8.GetBytes(text);
         if (textBytes.Length > ProtocolConstants.ClipboardTextSize)
         {
             throw new ArgumentException(
-                "Clipboard text is too long, must be at most 1000 bytes",
+                "Clipboard text must not exceed 1000 UTF-8 bytes",
                 nameof(text)
             );
         }
-        var buf = new byte[PayloadsConstants.DeviceIdSize + textBytes.Length];
-        deviceId.TryWriteBytes(buf, bigEndian: true, out _);
-        textBytes.CopyTo(buf, PayloadsConstants.DeviceIdSize);
+        byte[] buffer = new byte[PayloadsConstants.DeviceIdSize + textBytes.Length];
+        deviceId.TryWriteBytes(buffer, bigEndian: true, out _);
+        textBytes.CopyTo(buffer, PayloadsConstants.DeviceIdSize);
 
-        return buf;
+        return buffer;
     }
 
     public static (Guid DeviceId, string Text)? DecodeClipboard(ReadOnlySpan<byte> payload)
@@ -299,7 +343,9 @@ public static class Payloads
             payload.Length < PayloadsConstants.MinClipboardPayloadSize
             || payload.Length > PayloadsConstants.MaxClipboardPayloadSize
         )
+        {
             return null;
+        }
 
         var deviceId = new Guid(payload[..PayloadsConstants.DeviceIdSize], bigEndian: true);
 
@@ -342,15 +388,15 @@ public static class Payloads
         );
     }
 
-    private static void WriteFileIds(byte[] buf, Guid deviceId, Guid fileId)
+    private static void WriteFileIds(byte[] buffer, Guid deviceId, Guid fileId)
     {
         deviceId.TryWriteBytes(
-            buf.AsSpan(0, PayloadsConstants.DeviceIdSize),
+            buffer.AsSpan(0, PayloadsConstants.DeviceIdSize),
             bigEndian: true,
             out _
         );
         fileId.TryWriteBytes(
-            buf.AsSpan(PayloadsConstants.FileIdOffset, PayloadsConstants.FileIdSize),
+            buffer.AsSpan(PayloadsConstants.FileIdOffset, PayloadsConstants.FileIdSize),
             bigEndian: true,
             out _
         );

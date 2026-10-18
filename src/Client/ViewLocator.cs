@@ -7,10 +7,10 @@ using ViewModels;
 namespace Client;
 
 /// <summary>
-/// Given a view model, returns the corresponding view if possible.
+/// Finds a view for the supplied view model.
 /// </summary>
 [RequiresUnreferencedCode(
-    "Default implementation of ViewLocator involves reflection which may be trimmed away.",
+    "ViewLocator uses reflection; required types may be removed by trimming.",
     Url = "https://docs.avaloniaui.net/docs/concepts/view-locator"
 )]
 public class ViewLocator : IDataTemplate
@@ -18,9 +18,13 @@ public class ViewLocator : IDataTemplate
     public Control? Build(object? param)
     {
         if (param is null)
+        {
             return null;
+        }
 
-        var name = param.GetType().FullName!.Replace("ViewModel", "View", StringComparison.Ordinal);
+        string name = param
+            .GetType()
+            .FullName!.Replace("ViewModel", "View", StringComparison.Ordinal);
         var type = Type.GetType(name);
 
         if (type != null)
@@ -28,7 +32,7 @@ public class ViewLocator : IDataTemplate
             return (Control)Activator.CreateInstance(type)!;
         }
 
-        return new TextBlock { Text = "Not Found: " + name };
+        return new TextBlock { Text = "View not found: " + name };
     }
 
     public bool Match(object? data)

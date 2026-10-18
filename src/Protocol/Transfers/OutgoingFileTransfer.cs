@@ -21,22 +21,35 @@ internal sealed class OutgoingFileTransfer
         string? sourcePath = null
     )
     {
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(
-            fileSize,
-            (ulong)ProtocolConstants.MaxFileSize
-        );
-        ArgumentNullException.ThrowIfNull(sha256);
+        if (fileSize > (ulong)ProtocolConstants.MaxFileSize)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(fileSize),
+                fileSize,
+                "File size exceeds the maximum allowed size"
+            );
+        }
+
+        if (sha256 is null)
+        {
+            throw new ArgumentNullException(nameof(sha256), "Value cannot be null");
+        }
+
         if (sha256.Length != PayloadsConstants.Sha256Size)
+        {
             throw new ArgumentException("SHA-256 must contain 32 bytes", nameof(sha256));
+        }
 
         if (
             string.IsNullOrEmpty(fileName)
             || Encoding.UTF8.GetByteCount(fileName) > PayloadsConstants.MaxNameBytes
         )
+        {
             throw new ArgumentException(
                 "File name must contain 1 to 255 UTF-8 bytes",
                 nameof(fileName)
             );
+        }
 
         _sourcePath = sourcePath;
         Transfer = new FileTransfer
@@ -58,17 +71,24 @@ internal sealed class OutgoingFileTransfer
     )
     {
         ct.ThrowIfCancellationRequested();
-        var fullPath = Path.GetFullPath(filePath);
+        string fullPath = Path.GetFullPath(filePath);
         await using var stream = new FileStream(
             fullPath,
             FileMode.Open,
             FileAccess.Read,
             FileShare.Read
         );
-        var fileSize = stream.Length;
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(fileSize, ProtocolConstants.MaxFileSize);
+        long fileSize = stream.Length;
+        if (fileSize > ProtocolConstants.MaxFileSize)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(fileSize),
+                fileSize,
+                "File size exceeds the maximum allowed size"
+            );
+        }
 
-        var sha256 = await SHA256.HashDataAsync(stream, ct).ConfigureAwait(false);
+        byte[] sha256 = await SHA256.HashDataAsync(stream, ct).ConfigureAwait(false);
         ct.ThrowIfCancellationRequested();
         return new OutgoingFileTransfer(
             peerDeviceId,
@@ -83,19 +103,23 @@ internal sealed class OutgoingFileTransfer
     {
         ct.ThrowIfCancellationRequested();
         if (_sourcePath is null)
-            throw new InvalidOperationException("Transfer has no source path");
+        {
+            throw new InvalidOperationException("Transfer has no source file path");
+        }
 
         var stream = new FileStream(_sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read);
         try
         {
-            // The source may have changed while the receiver was deciding whether to accept it.
+            // The source may have changed while waiting for the receiver to decide.
             if (
                 (ulong)stream.Length != Transfer.FileSize
                 || !(await SHA256.HashDataAsync(stream, ct).ConfigureAwait(false))
                     .AsSpan()
                     .SequenceEqual(Transfer.Sha256)
             )
+            {
                 throw new IOException("Source file has changed since the offer was prepared");
+            }
 
             ct.ThrowIfCancellationRequested();
             stream.Position = 0;
@@ -111,10 +135,18 @@ internal sealed class OutgoingFileTransfer
     public void ConfirmChunk(uint index)
     {
         if (index != Transfer.NextIndex)
+        {
             throw new InvalidOperationException("Unexpected acknowledged chunk index");
+        }
 
         if (index * (ulong)ProtocolConstants.ChunkSize >= Transfer.FileSize)
-            throw new ArgumentOutOfRangeException(nameof(index));
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(index),
+                index,
+                "Chunk index is outside the file bounds"
+            );
+        }
 
         Transfer.NextIndex++;
     }

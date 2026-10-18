@@ -28,7 +28,7 @@ public class FileNameExtensionsTests
     [InlineData("console.txt", "console.txt")]
     public void SanitizeFileName_ReturnsSafeName(string fileName, string expected)
     {
-        var result = fileName.SanitizeFileName();
+        string result = fileName.SanitizeFileName();
 
         Assert.Equal(expected, result);
     }
@@ -39,9 +39,13 @@ public class FileNameExtensionsTests
     [InlineData("report.pdf", 2, "report (2).pdf")]
     [InlineData("report", 1, "report (1)")]
     [InlineData("archive.tar.gz", 1, "archive.tar (1).gz")]
-    public void WithFileSuffix_AddsSuffixBeforeExtension(string fileName, int number, string expected)
+    public void WithFileSuffix_AddsSuffixBeforeExtension(
+        string fileName,
+        int number,
+        string expected
+    )
     {
-        var result = fileName.WithFileSuffix(number);
+        string result = fileName.WithFileSuffix(number);
 
         Assert.Equal(expected, result);
     }
@@ -52,13 +56,14 @@ public class FileNameExtensionsTests
     public void WithFileSuffix_LimitsUtf8Length_WithoutSplittingUnicodeCharacters(string character)
     {
         var utf8 = new UTF8Encoding(false, true);
-        var count = PayloadsConstants.MaxNameBytes / utf8.GetByteCount(character);
-        var fileName = string.Concat(Enumerable.Repeat(character, count));
-        var suffix = " (1)";
+        int count = PayloadsConstants.MaxNameBytes / utf8.GetByteCount(character);
+        string fileName = string.Concat(Enumerable.Repeat(character, count));
+        string suffix = " (1)";
 
-        var result = fileName.WithFileSuffix(1);
+        string result = fileName.WithFileSuffix(1);
 
-        var expectedCount = (PayloadsConstants.MaxNameBytes - utf8.GetByteCount(suffix))
+        int expectedCount =
+            (PayloadsConstants.MaxNameBytes - utf8.GetByteCount(suffix))
             / utf8.GetByteCount(character);
         Assert.Equal(string.Concat(Enumerable.Repeat(character, expectedCount)) + suffix, result);
         Assert.True(utf8.GetByteCount(result) <= PayloadsConstants.MaxNameBytes);
