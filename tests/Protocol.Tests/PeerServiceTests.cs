@@ -1,4 +1,5 @@
 using System.Net;
+using System.Security.Cryptography;
 
 namespace Protocol.Tests;
 
@@ -134,9 +135,19 @@ public class PeerServiceTests
                     endpoint = next.From;
                 }
 
+                var done = await ReceiveMessageAsync(remote, remoteId, MessageType.FileDone, cts.Token);
+                Assert.Equal(fileId, Payloads.DecodeFileDone(done.Packet.Payload)!.Value.FileId);
+                await remote.SendReliableAsync(new Packet(MessageType.FileResult, remote.NextSeq(),
+                    Payloads.EncodeFileResult(remoteId, fileId, true)), done.From, service.DeviceId, cts.Token);
+                var doneRetry = await ReceiveMessageAsync(remote, remoteId, MessageType.FileDone, cts.Token);
+                Assert.Equal(done.Packet.Seq, doneRetry.Packet.Seq);
+                await remote.SendAckAsync(doneRetry.Packet.Seq, doneRetry.From, remoteId);
+
                 var transfer = await sending.WaitAsync(cts.Token);
                 Assert.Equal(3u, transfer.NextIndex);
-                Assert.Equal(TransferState.Transferring, transfer.State);
+                Assert.Equal(TransferState.Completed, transfer.State);
+                await remote.SendReliableAsync(new Packet(MessageType.FileResult, remote.NextSeq(),
+                    Payloads.EncodeFileResult(remoteId, fileId, true)), done.From, service.DeviceId, cts.Token);
             }
             finally
             {
@@ -193,14 +204,15 @@ public class PeerServiceTests
     [Theory]
     [InlineData(0)]
     [InlineData(2500)]
-    public async Task OfferFileAsync_DeliversAllChunks_ToReceivingPeer(int size)
+    public async Task OfferFileAsync_CompletesTransfer_AndSavesMatchingFile(int size)
     {
         var directory = Path.Combine(Path.GetTempPath(), $"protocol-peers-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, "source.bin");
         try
         {
-            await File.WriteAllBytesAsync(path, new byte[size]);
+            var data = Enumerable.Range(0, size).Select(index => (byte)index).ToArray();
+            await File.WriteAllBytesAsync(path, data);
             await using var sender = new PeerService("Sender", 0);
             await using var receiver = new PeerService("Receiver", 0);
             sender.AddManualEndpoint(new IPEndPoint(IPAddress.Loopback, receiver.LocalPort));
@@ -219,7 +231,12 @@ public class PeerServiceTests
                 var expectedIndex = (uint)((size + ProtocolConstants.ChunkSize - 1) / ProtocolConstants.ChunkSize);
                 Assert.Equal(expectedIndex, transfer.NextIndex);
                 Assert.Equal(expectedIndex, receiver.Transfers.GetTransfer(sender.DeviceId, offer.FileId).NextIndex);
-                Assert.Equal(TransferState.Transferring, transfer.State);
+                Assert.Equal(TransferState.Completed, transfer.State);
+                Assert.Equal(TransferState.Completed, receiver.Transfers.GetTransfer(sender.DeviceId, offer.FileId).State);
+                var savedPath = Assert.Single(Directory.GetFiles(directory), file => file != path);
+                Assert.Equal(data, await File.ReadAllBytesAsync(savedPath, cts.Token));
+                Assert.Equal(SHA256.HashData(data), SHA256.HashData(await File.ReadAllBytesAsync(savedPath, cts.Token)));
+                Assert.Empty(Directory.GetFiles(directory, "*.part"));
             }
             finally
             {
@@ -231,6 +248,106 @@ public class PeerServiceTests
         finally
         {
             Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task RunAsync_FileDone_SendsStoredResult_AndKeepsReceiving(
+        bool validHash,
+        bool acknowledgeResult
+    )
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"protocol-done-{Guid.NewGuid():N}");
+        try
+        {
+            await using var receiver = new PeerService("Receiver", 0);
+            using var remote = new UdpTransport();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var running = receiver.RunAsync(cts.Token);
+            var remoteId = Guid.NewGuid();
+            var fileId = Guid.NewGuid();
+            var target = new IPEndPoint(IPAddress.Loopback, receiver.LocalPort);
+            byte[] data = [1, 2, 3];
+            var deliveryFailed = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+            receiver.FileResultDeliveryFailed += (_, error) => deliveryFailed.TrySetResult(error);
+            try
+            {
+                await remote.SendAsync(new Packet(MessageType.PeerInfo, remote.NextSeq(),
+                    Payloads.EncodePeerInfo(remoteId, "Sender")), target);
+                await WaitForPeerAsync(receiver, remoteId, PeerAvailability.Available, cts.Token);
+                await remote.SendReliableAsync(new Packet(MessageType.FileOffer, remote.NextSeq(),
+                    Payloads.EncodeFileOffer(remoteId, fileId, (ulong)data.Length,
+                        validHash ? SHA256.HashData(data) : new byte[32], "report.bin")),
+                    target, receiver.DeviceId, cts.Token);
+                var answering = receiver.AnswerFileOfferAsync(remoteId, fileId, true, directory, cts.Token);
+                var answer = await ReceiveMessageAsync(remote, remoteId, MessageType.FileAnswer, cts.Token);
+                await remote.SendAckAsync(answer.Packet.Seq, answer.From, remoteId);
+                await answering;
+                await remote.SendReliableAsync(new Packet(MessageType.Chunk, remote.NextSeq(),
+                    Payloads.EncodeChunk(remoteId, fileId, 0, data)), target, receiver.DeviceId, cts.Token);
+                var done = new Packet(MessageType.FileDone, remote.NextSeq(), Payloads.EncodeFileDone(remoteId, fileId));
+                await remote.SendReliableAsync(done, target, receiver.DeviceId, cts.Token);
+                var result = await ReceiveMessageAsync(remote, remoteId, MessageType.FileResult, cts.Token);
+                Assert.Equal(validHash, Payloads.DecodeFileResult(result.Packet.Payload)!.Value.Ok);
+
+                // A pending FILE_RESULT ACK must not prevent the receiver from processing other messages.
+                await remote.SendReliableAsync(new Packet(MessageType.Heartbeat, remote.NextSeq(),
+                    Payloads.EncodeHeartbeat(remoteId)), target, receiver.DeviceId, cts.Token);
+
+                if (acknowledgeResult)
+                {
+                    await remote.SendAckAsync(result.Packet.Seq, result.From, remoteId);
+                    for (var repeat = 0; repeat < 2; repeat++)
+                    {
+                        if (repeat == 1)
+                            done = new Packet(MessageType.FileDone, remote.NextSeq(), done.Payload);
+                        await remote.SendReliableAsync(done, target, receiver.DeviceId, cts.Token);
+                        var repeated = await ReceiveMessageAsync(remote, remoteId, MessageType.FileResult, cts.Token);
+                        while (repeated.Packet.Seq == result.Packet.Seq)
+                        {
+                            await remote.SendAckAsync(repeated.Packet.Seq, repeated.From, remoteId);
+                            repeated = await ReceiveMessageAsync(remote, remoteId, MessageType.FileResult, cts.Token);
+                        }
+                        Assert.Equal(validHash, Payloads.DecodeFileResult(repeated.Packet.Payload)!.Value.Ok);
+                        await remote.SendAckAsync(repeated.Packet.Seq, repeated.From, remoteId);
+                        result = repeated;
+                    }
+                }
+                else
+                {
+                    Assert.IsType<TimeoutException>(await deliveryFailed.Task.WaitAsync(cts.Token));
+                    Assert.False(running.IsCompleted);
+                }
+
+                Assert.Equal(validHash ? TransferState.Completed : TransferState.Failed,
+                    receiver.Transfers.GetTransfer(remoteId, fileId).State);
+                Assert.Empty(Directory.GetFiles(directory, "*.part"));
+                if (validHash)
+                    Assert.Equal(data, await File.ReadAllBytesAsync(Assert.Single(Directory.GetFiles(directory)), cts.Token));
+                else
+                    Assert.Empty(Directory.GetFiles(directory));
+
+                if (!acknowledgeResult)
+                {
+                    await remote.SendReliableAsync(done, target, receiver.DeviceId, cts.Token);
+                    await ReceiveMessageAsync(remote, remoteId, MessageType.FileResult, cts.Token);
+                    await receiver.DisposeAsync();
+                    Assert.True(File.Exists(Path.Combine(directory, "report.bin")));
+                }
+            }
+            finally
+            {
+                cts.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
         }
     }
 

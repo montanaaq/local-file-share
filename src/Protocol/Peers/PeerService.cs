@@ -19,6 +19,7 @@ public sealed class PeerService : IAsyncDisposable
     private Task? _runTask;
     private bool _disposed;
     private readonly ProcessedMessages _processedMessages = new();
+    private readonly HashSet<Task> _fileResultTasks = [];
 
     public PeerService(string name, int localPort = ProtocolConstants.DefaultPort)
     {
@@ -39,6 +40,7 @@ public sealed class PeerService : IAsyncDisposable
 
     public event Action<Peer>? PeerChanged;
     public event Action<IPEndPoint, SocketException>? NetworkError;
+    public event Action<FileTransfer, Exception>? FileResultDeliveryFailed;
 
     public Peer[] GetPeers()
     {
@@ -130,6 +132,8 @@ public sealed class PeerService : IAsyncDisposable
         try
         {
             await SendChunksAsync(key, ct);
+            await SendFileDoneAsync(key, ct);
+            await Transfers.WaitForFileResultAsync(key, ct);
         }
         catch (TimeoutException)
         {
@@ -251,6 +255,63 @@ public sealed class PeerService : IAsyncDisposable
             .ConfigureAwait(false);
     }
 
+    private async Task SendFileResultAsync(TransferKey key, bool ok, CancellationToken ct)
+    {
+        var payload = Payloads.EncodeFileResult(DeviceId, key.FileId, ok);
+        var packet = new Packet(MessageType.FileResult, _transport.NextSeq(), payload);
+        Peer peer;
+
+        lock (_stateLock)
+        {
+            if (_disposed)
+                return;
+            peer = _peers[key.PeerDeviceId];
+        }
+        try
+        {
+            await _transport
+                .SendReliableAsync(packet, peer.Endpoint, key.PeerDeviceId, ct)
+                .ConfigureAwait(false);
+        }
+        catch (TimeoutException ex)
+        {
+            FileResultDeliveryFailed?.Invoke(Transfers.GetTransfer(key.PeerDeviceId, key.FileId), ex);
+        }
+        catch (SocketException ex) when (IsUnreachable(ex))
+        {
+            FileResultDeliveryFailed?.Invoke(Transfers.GetTransfer(key.PeerDeviceId, key.FileId), ex);
+        }
+    }
+
+    private async Task CompleteAndSendFileResultAsync(
+        TransferKey key,
+        Task<bool> completion,
+        CancellationToken ct
+    )
+    {
+        var ok = await completion.ConfigureAwait(false);
+        await SendFileResultAsync(key, ok, ct).ConfigureAwait(false);
+    }
+
+    private async Task ObserveFileResultsAsync(bool completedOnly, CancellationToken ct)
+    {
+        Task[] tasks;
+        lock (_stateLock)
+        {
+            tasks = _fileResultTasks.Where(task => !completedOnly || task.IsCompleted).ToArray();
+            foreach (var task in tasks)
+                _fileResultTasks.Remove(task);
+        }
+        try
+        {
+            await Task.WhenAll(tasks).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return;
+        }
+    }
+
     private async Task RunCoreAsync(CancellationToken ct)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct, _stopCts.Token);
@@ -269,6 +330,10 @@ public sealed class PeerService : IAsyncDisposable
                 await Task.WhenAll(receiving, monitoring).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cts.IsCancellationRequested) { }
+            finally
+            {
+                await ObserveFileResultsAsync(completedOnly: false, cts.Token).ConfigureAwait(false);
+            }
         }
     }
 
@@ -295,6 +360,7 @@ public sealed class PeerService : IAsyncDisposable
                 MessageType.FileOffer,
                 MessageType.FileAnswer,
                 MessageType.Chunk,
+                MessageType.FileDone,
                 MessageType.FileResult,
             ];
 
@@ -333,6 +399,19 @@ public sealed class PeerService : IAsyncDisposable
                 _processedMessages.Add(senderDeviceId, packet.Seq);
             }
 
+            Task<bool>? completion = null;
+            TransferKey completionKey = default;
+            if (packet.Type is MessageType.FileDone)
+            {
+                var fileDone = Payloads.DecodeFileDone(packet.Payload);
+                if (fileDone is null)
+                    continue;
+                completion = Transfers.HandleFileDone(packet.Payload, ct);
+                if (completion is null)
+                    continue;
+                completionKey = new TransferKey(senderDeviceId, fileDone.Value.FileId);
+            }
+
             try
             {
                 if (packet.Type is MessageType.Chunk && !Transfers.HandleChunk(packet.Payload))
@@ -344,6 +423,13 @@ public sealed class PeerService : IAsyncDisposable
             catch (SocketException ex) when (IsUnreachable(ex))
             {
                 NetworkError?.Invoke(from, ex);
+            }
+
+            if (completion is not null)
+            {
+                var delivery = CompleteAndSendFileResultAsync(completionKey, completion, ct);
+                lock (_stateLock)
+                    _fileResultTasks.Add(delivery);
             }
         }
     }
@@ -389,6 +475,7 @@ public sealed class PeerService : IAsyncDisposable
         do
         {
             ct.ThrowIfCancellationRequested();
+            await ObserveFileResultsAsync(completedOnly: true, ct).ConfigureAwait(false);
             var now = DateTimeOffset.UtcNow;
             if (now >= nextDiscover)
             {

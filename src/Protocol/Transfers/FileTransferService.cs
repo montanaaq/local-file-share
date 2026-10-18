@@ -375,9 +375,20 @@ public sealed class FileTransferService : IAsyncDisposable
             if (_disposed || !_transfers.TryGetValue(key, out var value))
                 return false;
             entry = value;
+            if (entry.Transfer.Direction != TransferDirection.Incoming)
+                return false;
+
+            if (entry.Transfer.State is TransferState.Verifying or TransferState.Completed)
+            {
+                if (chunk.Value.Index >= entry.Transfer.NextIndex)
+                    return false;
+                var remaining = entry.Transfer.FileSize
+                    - (ulong)chunk.Value.Index * (ulong)ProtocolConstants.ChunkSize;
+                return chunk.Value.Data.Length == (int)Math.Min((ulong)ProtocolConstants.ChunkSize, remaining);
+            }
+
             if (
                 entry.Transfer.State != TransferState.Transferring
-                || entry.Transfer.Direction != TransferDirection.Incoming
                 || entry.IncomingFile is null
             )
                 return false;
@@ -420,17 +431,45 @@ public sealed class FileTransferService : IAsyncDisposable
 
             if (_disposed || !_transfers.TryGetValue(key, out var entry))
                 return false;
-            if (
-                entry.Transfer.Direction != TransferDirection.Outgoing
-                || entry.Transfer.State != TransferState.Transferring
-            )
+            if (entry.Transfer.Direction != TransferDirection.Outgoing)
+                return false;
+            if (entry.ReceivedResult.HasValue)
+                return entry.ReceivedResult.Value == fileResult.Value.Ok;
+            if (entry.Transfer.State != TransferState.Transferring)
                 return false;
 
             var completion = entry.Result;
             if (completion is null)
                 return false;
 
-            return completion.TrySetResult(fileResult.Value.Ok);
+            if (!completion.TrySetResult(fileResult.Value.Ok))
+                return false;
+            entry.ReceivedResult = fileResult.Value.Ok;
+            return true;
+        }
+    }
+
+    internal Task<bool>? HandleFileDone(ReadOnlySpan<byte> payload, CancellationToken ct)
+    {
+        var fileDone = Payloads.DecodeFileDone(payload);
+        if (fileDone is null)
+            return null;
+
+        var key = new TransferKey(fileDone.Value.DeviceId, fileDone.Value.FileId);
+        lock (_stateLock)
+        {
+            if (!_transfers.TryGetValue(key, out var entry))
+                return null;
+            if (entry.Transfer.Direction != TransferDirection.Incoming)
+                return null;
+
+            if (entry.IncomingCompletion is not null)
+                return entry.IncomingCompletion;
+
+            if (entry.Transfer.State != TransferState.Transferring || entry.IncomingFile == null)
+                return null;
+
+            return CompleteIncomingTransferAsync(key, ct);
         }
     }
 

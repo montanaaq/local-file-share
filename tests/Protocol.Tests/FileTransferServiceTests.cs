@@ -323,6 +323,12 @@ public class FileTransferServiceTests
         );
 
         Assert.Equal(ok, await service.WaitForFileResultAsync(key, CancellationToken.None));
+        Assert.True(
+            service.HandleFileResult(Payloads.EncodeFileResult(deviceId, transfer.FileId, ok))
+        );
+        Assert.False(
+            service.HandleFileResult(Payloads.EncodeFileResult(deviceId, transfer.FileId, !ok))
+        );
         Assert.Equal(
             ok ? TransferState.Completed : TransferState.Failed,
             service.GetTransfer(deviceId, transfer.FileId).State
@@ -397,6 +403,9 @@ public class FileTransferServiceTests
             );
 
             Assert.Equal(TransferState.Completed, service.GetTransfer(deviceId, fileId).State);
+            Assert.True(service.HandleChunk(Payloads.EncodeChunk(deviceId, fileId, 0, data)));
+            Assert.False(service.HandleChunk(Payloads.EncodeChunk(deviceId, fileId, 1, data)));
+            Assert.False(service.HandleChunk(Payloads.EncodeChunk(deviceId, fileId, 0, [1])));
             Assert.Equal(new byte[] { 9 }, await File.ReadAllBytesAsync(existingPath));
             Assert.Equal(
                 data,

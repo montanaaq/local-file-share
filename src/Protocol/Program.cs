@@ -32,6 +32,10 @@ internal static class Program
                 Console.Error.WriteLine(
                     $"Transfer {transfer.FileId} failed: {error.Message}"
                 );
+            service.FileResultDeliveryFailed += (transfer, error) =>
+                Console.Error.WriteLine(
+                    $"Could not deliver result for file {transfer.FileId}: {error.Message}"
+                );
             for (var index = 2; index < args.Length; index += 2)
             {
                 if (index + 1 >= args.Length)
