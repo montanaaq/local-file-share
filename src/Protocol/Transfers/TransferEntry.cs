@@ -11,6 +11,7 @@ internal sealed class TransferEntry
     public TaskCompletionSource<bool>? Result { get; set; }
     public IncomingFileTransfer? IncomingFile { get; set; }
     public OutgoingFileTransfer? OutgoingFile { get; private set; }
+    public Task<bool>? IncomingCompletion { get; set; }
 
     public bool IsFinal =>
         Transfer.State

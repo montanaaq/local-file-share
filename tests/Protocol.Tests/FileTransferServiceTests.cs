@@ -384,11 +384,16 @@ public class FileTransferServiceTests
             service.SetIncomingDecision(deviceId, fileId, true, directory);
             Assert.True(service.HandleChunk(Payloads.EncodeChunk(deviceId, fileId, 0, data)));
 
-            Assert.True(
-                await service.CompleteIncomingTransferAsync(
-                    new TransferKey(deviceId, fileId),
-                    CancellationToken.None
-                )
+            var key = new TransferKey(deviceId, fileId);
+            var completion = service.CompleteIncomingTransferAsync(key, CancellationToken.None);
+            Assert.Same(
+                completion,
+                service.CompleteIncomingTransferAsync(key, CancellationToken.None)
+            );
+            Assert.True(await completion);
+            Assert.Same(
+                completion,
+                service.CompleteIncomingTransferAsync(key, CancellationToken.None)
             );
 
             Assert.Equal(TransferState.Completed, service.GetTransfer(deviceId, fileId).State);

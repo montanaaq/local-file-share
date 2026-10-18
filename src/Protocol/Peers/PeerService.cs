@@ -155,44 +155,6 @@ public sealed class PeerService : IAsyncDisposable
         return Transfers.GetTransfer(peerDeviceId, transfer.FileId);
     }
 
-    private async Task SendChunksAsync(TransferKey key, CancellationToken ct)
-    {
-        await using var stream = await Transfers.OpenOutgoingFileAsync(key, ct);
-
-        var transfer = Transfers.GetTransfer(key.PeerDeviceId, key.FileId);
-        var index = transfer.NextIndex;
-        var offset = (long)index * ProtocolConstants.ChunkSize;
-
-        stream.Position = offset;
-        var buffer = new byte[ProtocolConstants.ChunkSize];
-
-        while (offset < (long)transfer.FileSize)
-        {
-            ct.ThrowIfCancellationRequested();
-            var length = (int)Math.Min(buffer.Length, (long)transfer.FileSize - offset);
-            await stream.ReadExactlyAsync(buffer.AsMemory(0, length), ct);
-
-            var payload = Payloads.EncodeChunk(
-                DeviceId,
-                key.FileId,
-                index,
-                buffer.AsSpan(0, length)
-            );
-            var packet = new Packet(MessageType.Chunk, _transport.NextSeq(), payload);
-
-            Peer peer;
-            lock (_stateLock)
-            {
-                ObjectDisposedException.ThrowIf(_disposed, this);
-                peer = _peers[key.PeerDeviceId];
-            }
-            await _transport.SendReliableAsync(packet, peer.Endpoint, key.PeerDeviceId, ct);
-            Transfers.ConfirmOutgoingChunk(key, index);
-            index++;
-            offset += length;
-        }
-    }
-
     public async Task<FileTransfer> AnswerFileOfferAsync(
         Guid peerDeviceId,
         Guid fileId,
@@ -231,6 +193,62 @@ public sealed class PeerService : IAsyncDisposable
         }
 
         return transfer;
+    }
+
+    private async Task SendChunksAsync(TransferKey key, CancellationToken ct)
+    {
+        await using var stream = await Transfers.OpenOutgoingFileAsync(key, ct);
+
+        var transfer = Transfers.GetTransfer(key.PeerDeviceId, key.FileId);
+        var index = transfer.NextIndex;
+        var offset = (long)index * ProtocolConstants.ChunkSize;
+
+        stream.Position = offset;
+        var buffer = new byte[ProtocolConstants.ChunkSize];
+
+        while (offset < (long)transfer.FileSize)
+        {
+            ct.ThrowIfCancellationRequested();
+            var length = (int)Math.Min(buffer.Length, (long)transfer.FileSize - offset);
+            await stream.ReadExactlyAsync(buffer.AsMemory(0, length), ct);
+
+            var payload = Payloads.EncodeChunk(
+                DeviceId,
+                key.FileId,
+                index,
+                buffer.AsSpan(0, length)
+            );
+            var packet = new Packet(MessageType.Chunk, _transport.NextSeq(), payload);
+
+            Peer peer;
+            lock (_stateLock)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                peer = _peers[key.PeerDeviceId];
+            }
+            await _transport.SendReliableAsync(packet, peer.Endpoint, key.PeerDeviceId, ct);
+            Transfers.ConfirmOutgoingChunk(key, index);
+            index++;
+            offset += length;
+        }
+    }
+
+    private async Task SendFileDoneAsync(TransferKey key, CancellationToken ct)
+    {
+        var payload = Payloads.EncodeFileDone(DeviceId, key.FileId);
+        var packet = new Packet(MessageType.FileDone, _transport.NextSeq(), payload);
+        Peer peer;
+
+        lock (_stateLock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+            peer = _peers[key.PeerDeviceId];
+        }
+
+        await _transport
+            .SendReliableAsync(packet, peer.Endpoint, key.PeerDeviceId, ct)
+            .ConfigureAwait(false);
     }
 
     private async Task RunCoreAsync(CancellationToken ct)
@@ -277,6 +295,7 @@ public sealed class PeerService : IAsyncDisposable
                 MessageType.FileOffer,
                 MessageType.FileAnswer,
                 MessageType.Chunk,
+                MessageType.FileResult,
             ];
 
             if (!allowedTypes.Contains(packet.Type))
@@ -298,6 +317,17 @@ public sealed class PeerService : IAsyncDisposable
             )
             {
                 if (!Transfers.HandleFileAnswer(packet.Payload))
+                    continue;
+
+                _processedMessages.Add(senderDeviceId, packet.Seq);
+            }
+
+            if (
+                packet.Type is MessageType.FileResult
+                && !_processedMessages.Contains(senderDeviceId, packet.Seq)
+            )
+            {
+                if (!Transfers.HandleFileResult(packet.Payload))
                     continue;
 
                 _processedMessages.Add(senderDeviceId, packet.Seq);

@@ -434,25 +434,44 @@ public sealed class FileTransferService : IAsyncDisposable
         }
     }
 
-    internal async Task<bool> CompleteIncomingTransferAsync(TransferKey key, CancellationToken ct)
+    internal Task<bool> CompleteIncomingTransferAsync(TransferKey key, CancellationToken ct)
     {
-        IncomingFileTransfer incomingFile;
-        byte[] expectedSha256;
-        string fileName;
-
         lock (_stateLock)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             var entry = GetEntry(key);
+
+            if (entry.Transfer.Direction != TransferDirection.Incoming)
+                throw new InvalidOperationException($"Transfer direction must be Incoming");
+
+            if (entry.IncomingCompletion is not null)
+                return entry.IncomingCompletion;
+
             entry.Require(TransferDirection.Incoming, TransferState.Transferring);
 
-            incomingFile =
+            var incomingFile =
                 entry.IncomingFile
                 ?? throw new InvalidOperationException("Transfer has no incoming file");
-            expectedSha256 = entry.Transfer.Sha256;
-            fileName = entry.Transfer.FileName;
+            var expectedSha256 = entry.Transfer.Sha256;
+            var fileName = entry.Transfer.FileName;
+
             entry.ChangeState(TransferState.Verifying);
+            entry.IncomingCompletion = Task.Run(() =>
+                CompleteIncomingTransferCoreAsync(key, incomingFile, expectedSha256, fileName, ct)
+            );
+
+            return entry.IncomingCompletion;
         }
+    }
+
+    private async Task<bool> CompleteIncomingTransferCoreAsync(
+        TransferKey key,
+        IncomingFileTransfer incomingFile,
+        byte[] expectedSha256,
+        string fileName,
+        CancellationToken ct
+    )
+    {
         try
         {
             var verified = await incomingFile.VerifyAsync(expectedSha256, ct).ConfigureAwait(false);
@@ -473,6 +492,11 @@ public sealed class FileTransferService : IAsyncDisposable
         {
             SetState(key, TransferState.Cancelled);
             throw;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            SetState(key, TransferState.Failed, ex);
+            return false;
         }
         catch (Exception ex)
         {
@@ -533,6 +557,7 @@ public sealed class FileTransferService : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         List<IncomingFileTransfer> files;
+        List<Task<bool>> incomingCompletions = [];
         lock (_stateLock)
         {
             if (_disposed)
@@ -543,12 +568,31 @@ public sealed class FileTransferService : IAsyncDisposable
             {
                 entry.Answer?.TrySetCanceled();
                 entry.Result?.TrySetCanceled();
+
                 if (entry.IncomingFile is not null)
                     files.Add(entry.IncomingFile);
+                if (entry.IncomingCompletion is not null)
+                    incomingCompletions.Add(entry.IncomingCompletion);
             }
             _transfers.Clear();
         }
         var errors = new List<Exception>();
+
+        foreach (var completion in incomingCompletions)
+        {
+            try
+            {
+                await completion.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                continue;
+            }
+            catch (Exception ex)
+            {
+                errors.Add(ex);
+            }
+        }
 
         foreach (var file in files)
         {
