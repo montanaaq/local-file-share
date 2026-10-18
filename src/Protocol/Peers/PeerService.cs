@@ -157,7 +157,7 @@ public sealed class PeerService : IAsyncDisposable
 
     private async Task SendChunksAsync(TransferKey key, CancellationToken ct)
     {
-        await using var stream = Transfers.OpenOutgoingFile(key);
+        await using var stream = await Transfers.OpenOutgoingFileAsync(key, ct);
 
         var transfer = Transfers.GetTransfer(key.PeerDeviceId, key.FileId);
         var index = transfer.NextIndex;

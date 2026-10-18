@@ -69,7 +69,7 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(expectedSha256);
         if (expectedSha256.Length != PayloadsConstants.Sha256Size)
-            throw new ArgumentException("expected sha256 must be valid size");
+            throw new ArgumentException("SHA-256 must contain 32 bytes", nameof(expectedSha256));
 
         await _fileLock.WaitAsync(ct).ConfigureAwait(false);
 
@@ -108,7 +108,7 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
 
             if (!_verified)
-                throw new InvalidOperationException("Can not save not verified file");
+                throw new InvalidOperationException("File must be verified before saving");
 
             var directory =
                 Path.GetDirectoryName(_partPath)
