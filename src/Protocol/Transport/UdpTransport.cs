@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace Protocol;
 
-public sealed class UdpTransport : IDisposable
+public sealed class UdpTransport : IDisposable, IMessageTransport
 {
     private readonly Socket _socket;
     private uint _nextSeq;
@@ -87,21 +87,20 @@ public sealed class UdpTransport : IDisposable
     }
 
     private async Task<(Packet? Packet, IPEndPoint From)> ReceiveFromSocketAsync(
+        Memory<byte> buffer,
         CancellationToken ct
     )
     {
-        byte[] buf = new byte[ushort.MaxValue];
-
         var result = await _socket
             .ReceiveFromAsync(
-                buf.AsMemory(),
+                buffer,
                 SocketFlags.None,
                 new IPEndPoint(IPAddress.Any, 0),
                 ct
             )
             .ConfigureAwait(false);
 
-        var packet = Packet.Parse(buf.AsSpan(0, result.ReceivedBytes));
+        var packet = Packet.Parse(buffer.Span[..result.ReceivedBytes]);
         var from = (IPEndPoint)result.RemoteEndPoint;
 
         return (packet, from);
@@ -109,12 +108,13 @@ public sealed class UdpTransport : IDisposable
 
     private async Task ReceiveLoopAsync(CancellationToken ct)
     {
+        byte[] buffer = new byte[ushort.MaxValue];
         Exception? error = null;
         try
         {
             while (true)
             {
-                var (packet, from) = await ReceiveFromSocketAsync(ct).ConfigureAwait(false);
+                var (packet, from) = await ReceiveFromSocketAsync(buffer, ct).ConfigureAwait(false);
                 if (packet is null)
                     continue;
 

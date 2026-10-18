@@ -28,14 +28,19 @@ public class UdpTransportTests
         var (first, from) = await receiver.ReceiveAsync(cts.Token);
         Assert.NotNull(first);
 
-        var payload = Payloads.EncodeAck(
+        byte[] payload = Payloads.EncodeAck(
             mismatch == "device" ? Guid.NewGuid() : deviceId,
             mismatch == "seq" ? packet.Seq + 1 : packet.Seq
         );
         if (mismatch == "legacy")
+        {
             payload = [0, 0, 0, 0, 0, 0];
+        }
+
         if (mismatch == "extraBytes")
+        {
             payload = [.. payload, 0];
+        }
 
         var ackSender = mismatch == "endpoint" ? other : receiver;
         await ackSender.SendAsync(new Packet(MessageType.Ack, ackSender.NextSeq(), payload), from);
@@ -140,7 +145,7 @@ public class UdpTransportTests
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
 
         var sending = sender.SendReliableAsync(packet, target, deviceId, cts.Token);
-        for (var attempt = 0; attempt < 5; attempt++)
+        for (int attempt = 0; attempt < 5; attempt++)
         {
             var (received, _) = await receiver.ReceiveAsync(cts.Token);
             Assert.NotNull(received);
@@ -381,5 +386,30 @@ public class UdpTransportTests
         Assert.Equal(validPacket.Type, received.Type);
         Assert.Equal(validPacket.Seq, received.Seq);
         Assert.Equal(validPacket.Payload, received.Payload);
+    }
+
+    [Fact]
+    public async Task ReceiveAsync_ReusingSocketBuffer_DoesNotChangePreviouslyReceivedPayload()
+    {
+        using var sender = new UdpTransport();
+        using var receiver = new UdpTransport();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var endpoint = new IPEndPoint(IPAddress.Loopback, receiver.LocalPort);
+        var deviceId = Guid.NewGuid();
+        byte[] firstPayload = Payloads.EncodePeerInfo(deviceId, "First");
+        await sender.SendAsync(
+            new Packet(MessageType.PeerInfo, sender.NextSeq(), firstPayload),
+            endpoint
+        );
+        var first = await receiver.ReceiveAsync(timeout.Token);
+        byte[] secondPayload = Payloads.EncodePeerInfo(deviceId, "Other");
+        await sender.SendAsync(
+            new Packet(MessageType.PeerInfo, sender.NextSeq(), secondPayload),
+            endpoint
+        );
+        var second = await receiver.ReceiveAsync(timeout.Token);
+
+        Assert.Equal(firstPayload, first.Packet.Payload);
+        Assert.Equal(secondPayload, second.Packet.Payload);
     }
 }
