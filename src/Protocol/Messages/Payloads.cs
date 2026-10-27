@@ -77,6 +77,14 @@ public static class Payloads
         return (deviceId, fileId, index, data);
     }
 
+    /// <summary>
+    /// Кодирует предложение файла; размеры, длина имени и SHA-256 проверяются до записи полей.
+    /// </summary>
+    /// <param name="deviceId">Идентификатор отправителя.</param>
+    /// <param name="fileId">Идентификатор файла в рамках обмена с этим устройством.</param>
+    /// <param name="size">Размер всего файла в байтах, не более лимита протокола.</param>
+    /// <param name="sha256">32 байта SHA-256 всего файла.</param>
+    /// <param name="name">Имя файла без пути, от 1 до 255 байт строгого UTF-8.</param>
     public static byte[] EncodeFileOffer(
         Guid deviceId,
         Guid fileId,
@@ -100,14 +108,7 @@ public static class Payloads
             );
         }
 
-        if (size > ProtocolConstants.MaxFileSize)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(size),
-                size,
-                "File size exceeds the maximum allowed size"
-            );
-        }
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(size, (ulong)ProtocolConstants.MaxFileSize);
 
         byte[] buffer = new byte[PayloadsConstants.NameOffset + nameBytes.Length];
         WriteFileIds(buffer, deviceId, fileId);
@@ -116,12 +117,19 @@ public static class Payloads
             buffer.AsSpan(PayloadsConstants.FileSizeOffset),
             size
         );
+
         sha256.CopyTo(buffer, PayloadsConstants.Sha256Offset);
         buffer[PayloadsConstants.NameLengthOffset] = (byte)nameBytes.Length;
         nameBytes.CopyTo(buffer, PayloadsConstants.NameOffset);
+
         return buffer;
     }
 
+    /// <summary>
+    /// Разбирает предложение файла, проверяя размер, длину имени, строгий UTF-8 и отсутствие лишних байтов.
+    /// </summary>
+    /// <param name="payload">Тело FILE_OFFER без заголовка пакета.</param>
+    /// <returns>Метаданные предложения либо null при нарушении сетевого формата.</returns>
     public static (
         Guid DeviceId,
         Guid FileId,
@@ -171,6 +179,7 @@ public static class Payloads
     {
         byte[] buffer = new byte[PayloadsConstants.DeviceIdSize];
         deviceId.TryWriteBytes(buffer, bigEndian: true, out _);
+
         return buffer;
     }
 
@@ -286,9 +295,7 @@ public static class Payloads
             return null;
         }
 
-        var (deviceId, fileId) = GetFileIds(payload);
-
-        return (deviceId, fileId);
+        return GetFileIds(payload);
     }
 
     public static byte[] EncodeFileResult(Guid deviceId, Guid fileId, bool ok)
@@ -362,6 +369,11 @@ public static class Payloads
         return (deviceId, text);
     }
 
+    /// <summary>
+    /// Выбирает декодер сообщения и проверяет его сетевой формат; состояние передачи здесь не проверяется.
+    /// </summary>
+    /// <param name="type">Код сообщения из заголовка пакета.</param>
+    /// <param name="payload">Полное тело сообщения без заголовка.</param>
     public static bool IsValid(MessageType type, ReadOnlySpan<byte> payload) =>
         type switch
         {

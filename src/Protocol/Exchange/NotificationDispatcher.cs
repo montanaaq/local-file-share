@@ -17,6 +17,11 @@ internal sealed class NotificationDispatcher : IAsyncDisposable
 
     public event Action<Exception>? NotificationFailed;
 
+    /// <summary>
+    /// Ставит вызовы подписчиков в фоновую очередь. Ошибка одного обработчика не прерывает остальные.
+    /// </summary>
+    /// <param name="handlers">Делегат события со списком подписчиков; null ничего не ставит в очередь.</param>
+    /// <param name="invoke">Действие, вызывающее одного подписчика с нужными аргументами.</param>
     public void Post<THandler>(THandler? handlers, Action<THandler> invoke)
         where THandler : Delegate
     {
@@ -25,8 +30,8 @@ internal sealed class NotificationDispatcher : IAsyncDisposable
             return;
         }
 
-        if (
-            _queue.Writer.TryWrite(() =>
+        ObjectDisposedException.ThrowIf(
+            !_queue.Writer.TryWrite(() =>
             {
                 foreach (var handler in handlers.GetInvocationList().Cast<THandler>())
                 {
@@ -39,14 +44,8 @@ internal sealed class NotificationDispatcher : IAsyncDisposable
                         ReportFailure(error);
                     }
                 }
-            })
-        )
-        {
-            return;
-        }
-        throw new ObjectDisposedException(
-            nameof(NotificationDispatcher),
-            "Object has been disposed"
+            }),
+            this
         );
     }
 

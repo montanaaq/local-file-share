@@ -17,5 +17,9 @@ public static class ProtocolConstants
     public static readonly TimeSpan ConnectionTimeout = TimeSpan.FromSeconds(3);
     public static readonly TimeSpan FileAnswerTimeout = TimeSpan.FromSeconds(60);
     public static readonly TimeSpan FileResultTimeout = TimeSpan.FromSeconds(30);
+    public static readonly TimeSpan IncomingChunkTimeout = TimeSpan.FromSeconds(10);
+    public static readonly TimeSpan PauseTimeout = TimeSpan.FromSeconds(120);
+    public static readonly TimeSpan ProbeInterval = TimeSpan.FromSeconds(2);
+    public static readonly TimeSpan MaintenanceInterval = TimeSpan.FromMilliseconds(100);
     public const int ProcessedMessagesCapacity = 256;
 }

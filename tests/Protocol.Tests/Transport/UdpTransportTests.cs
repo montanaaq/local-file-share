@@ -1,5 +1,5 @@
 using System.Net;
-using Microsoft.VisualStudio.TestPlatform.CommunicationUtilities;
+using System.Net.Sockets;
 
 namespace Protocol.Tests;
 
@@ -81,55 +81,6 @@ public class UdpTransportTests
     }
 
     [Fact]
-    public async Task SendAsync_DeliversPacketToOtherTransport()
-    {
-        using var sender = new UdpTransport();
-        using var receiver = new UdpTransport();
-
-        var target = new IPEndPoint(IPAddress.Loopback, receiver.LocalPort);
-        var packet = new Packet(
-            MessageType.Chunk,
-            sender.NextSeq(),
-            Payloads.EncodeChunk(Guid.NewGuid(), Guid.NewGuid(), 0, [1, 2, 3])
-        );
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-
-        await sender.SendAsync(packet, target);
-        var (received, _) = await receiver.ReceiveAsync(cts.Token);
-
-        Assert.NotNull(received);
-        Assert.Equal(packet.Seq, received.Seq);
-        Assert.Equal(packet.Payload, received.Payload);
-    }
-
-    [Fact]
-    public async Task SendReliableAsync_Completes_WhenAckArrives()
-    {
-        using var sender = new UdpTransport();
-        using var receiver = new UdpTransport();
-
-        var target = new IPEndPoint(IPAddress.Loopback, receiver.LocalPort);
-        var deviceId = Guid.NewGuid();
-        var packet = new Packet(
-            MessageType.Chunk,
-            sender.NextSeq(),
-            Payloads.EncodeChunk(Guid.NewGuid(), Guid.NewGuid(), 0, [1, 2, 3])
-        );
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-
-        var sending = sender.SendReliableAsync(packet, target, deviceId, cts.Token);
-
-        var (received, from) = await receiver.ReceiveAsync(cts.Token);
-
-        Assert.NotNull(received);
-
-        await receiver.SendAckAsync(packet.Seq, from, deviceId);
-
-        await sending;
-        Assert.True(sending.IsCompletedSuccessfully);
-    }
-
-    [Fact]
     public async Task SendReliableAsync_Throws_WhenNoAckArrives()
     {
         using var sender = new UdpTransport();
@@ -157,43 +108,6 @@ public class UdpTransportTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
             await receiver.ReceiveAsync(noMorePackets.Token)
         );
-    }
-
-    [Fact]
-    public async Task SendReliableAsync_Retries_WithSameSeq()
-    {
-        using var sender = new UdpTransport();
-        using var receiver = new UdpTransport();
-
-        var target = new IPEndPoint(IPAddress.Loopback, receiver.LocalPort);
-        var deviceId = Guid.NewGuid();
-        var packet = new Packet(
-            MessageType.Chunk,
-            sender.NextSeq(),
-            Payloads.EncodeChunk(Guid.NewGuid(), Guid.NewGuid(), 0, [1, 2, 3])
-        );
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-
-        var sending = sender.SendReliableAsync(packet, target, deviceId, cts.Token);
-
-        var (firstReceived, _) = await receiver.ReceiveAsync(cts.Token);
-        var (secondReceived, from) = await receiver.ReceiveAsync(cts.Token);
-
-        Assert.NotNull(firstReceived);
-        Assert.NotNull(secondReceived);
-        Assert.Equal(packet.Seq, firstReceived.Seq);
-        Assert.Equal(packet.Seq, secondReceived.Seq);
-        Assert.Equal(firstReceived.Payload, secondReceived.Payload);
-
-        await receiver.SendAsync(
-            new Packet(
-                MessageType.Ack,
-                receiver.NextSeq(),
-                Payloads.EncodeAck(deviceId, secondReceived.Seq)
-            ),
-            from
-        );
-        await sending;
     }
 
     [Theory]
@@ -411,5 +325,201 @@ public class UdpTransportTests
 
         Assert.Equal(firstPayload, first.Packet.Payload);
         Assert.Equal(secondPayload, second.Packet.Payload);
+    }
+
+    [Fact]
+    public async Task ExchangeToggle_DropsTrafficAndPreservesSocketAndSequence()
+    {
+        using var sender = new UdpTransport();
+        using var receiver = new UdpTransport();
+        int originalPort = receiver.LocalPort;
+        var senderEndpoint = new IPEndPoint(IPAddress.Loopback, sender.LocalPort);
+        var receiverEndpoint = new IPEndPoint(IPAddress.Loopback, receiver.LocalPort);
+        var senderId = Guid.NewGuid();
+        var receiverId = Guid.NewGuid();
+        uint previousSeq = receiver.NextSeq();
+        receiver.IsExchangeEnabled = false;
+
+        await receiver.SendAsync(
+            new Packet(
+                MessageType.Heartbeat,
+                receiver.NextSeq(),
+                Payloads.EncodeHeartbeat(receiverId)
+            ),
+            senderEndpoint
+        );
+        await sender.SendAsync(
+            new Packet(MessageType.Heartbeat, sender.NextSeq(), Payloads.EncodeHeartbeat(senderId)),
+            receiverEndpoint
+        );
+        using (var disabled = new CancellationTokenSource(TimeSpan.FromMilliseconds(200)))
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+                await receiver.ReceiveAsync(disabled.Token)
+            );
+        }
+        using (var noOutgoing = new CancellationTokenSource(TimeSpan.FromMilliseconds(100)))
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+                await sender.ReceiveAsync(noOutgoing.Token)
+            );
+        }
+
+        receiver.IsExchangeEnabled = true;
+        Assert.Equal(originalPort, receiver.LocalPort);
+        Assert.Equal(previousSeq + 2, receiver.NextSeq());
+        Assert.Equal(1, receiver.GetStatistics().DroppedOutgoingPackets);
+        Assert.Equal(1, receiver.GetStatistics().DroppedIncomingPackets);
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var packet = new Packet(
+            MessageType.Chunk,
+            sender.NextSeq(),
+            Payloads.EncodeChunk(senderId, Guid.NewGuid(), 0, [1])
+        );
+        var sending = sender.SendReliableAsync(packet, receiverEndpoint, receiverId, timeout.Token);
+        var incoming = await receiver.ReceiveAsync(timeout.Token);
+        Assert.Equal(packet.Seq, incoming.Packet.Seq);
+        await receiver.SendAckAsync(packet.Seq, incoming.From, receiverId);
+        await sending;
+    }
+
+    [Fact]
+    public async Task ReceiveAsync_DiscardsQueuedMessagesFromBeforeExchangeWasDisabled()
+    {
+        using var sender = new UdpTransport();
+        using var receiver = new UdpTransport();
+        var endpoint = new IPEndPoint(IPAddress.Loopback, receiver.LocalPort);
+        var senderId = Guid.NewGuid();
+        var receiverId = Guid.NewGuid();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await sender.SendAsync(
+            new Packet(
+                MessageType.Clipboard,
+                sender.NextSeq(),
+                Payloads.EncodeClipboard(senderId, "stale")
+            ),
+            endpoint
+        );
+        while (receiver.GetStatistics().ReceivedPackets == 0)
+        {
+            await Task.Delay(10, timeout.Token);
+        }
+
+        receiver.IsExchangeEnabled = false;
+        receiver.IsExchangeEnabled = true;
+        var current = new Packet(
+            MessageType.Chunk,
+            sender.NextSeq(),
+            Payloads.EncodeChunk(senderId, Guid.NewGuid(), 0, [1])
+        );
+        var sending = sender.SendReliableAsync(current, endpoint, receiverId, timeout.Token);
+        var incoming = await receiver.ReceiveAsync(timeout.Token);
+        Assert.Equal(current.Type, incoming.Packet.Type);
+        Assert.Equal(current.Seq, incoming.Packet.Seq);
+        await receiver.SendAckAsync(current.Seq, incoming.From, receiverId);
+        await sending;
+
+        Assert.True(receiver.GetStatistics().DroppedIncomingPackets > 0);
+    }
+
+    [Fact]
+    public async Task GetStatistics_CountsRetriesAndMatchingAcknowledgments()
+    {
+        using var sender = new UdpTransport();
+        using var receiver = new UdpTransport();
+        var endpoint = new IPEndPoint(IPAddress.Loopback, receiver.LocalPort);
+        var receiverId = Guid.NewGuid();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var packet = new Packet(
+            MessageType.Chunk,
+            sender.NextSeq(),
+            Payloads.EncodeChunk(Guid.NewGuid(), Guid.NewGuid(), 0, [1])
+        );
+        var sending = sender.SendReliableAsync(packet, endpoint, receiverId, timeout.Token);
+        var first = await receiver.ReceiveAsync(timeout.Token);
+        var retry = await receiver.ReceiveAsync(timeout.Token);
+        Assert.Equal(packet.Seq, first.Packet.Seq);
+        Assert.Equal(first.Packet.Seq, retry.Packet.Seq);
+        Assert.Equal(packet.Payload, first.Packet.Payload);
+        Assert.Equal(first.Packet.Payload, retry.Packet.Payload);
+        await receiver.SendAckAsync(packet.Seq, retry.From, receiverId);
+        await sending;
+
+        var sent = sender.GetStatistics();
+        var received = receiver.GetStatistics();
+        Assert.True(sent.SentPackets >= 2);
+        Assert.Equal(sent.SentPackets - 1, sent.Retries);
+        Assert.Equal(1, sent.AcknowledgmentsReceived);
+        Assert.True(received.ReceivedPackets >= 2);
+        Assert.Equal(1, received.AcknowledgmentsSent);
+        Assert.Equal(0, sent.Errors);
+    }
+
+    [Fact]
+    public async Task GetStatistics_CountsSimulatedLossInBothDirections()
+    {
+        using var sender = new UdpTransport();
+        using var receiver = new UdpTransport();
+        var endpoint = new IPEndPoint(IPAddress.Loopback, receiver.LocalPort);
+        var deviceId = Guid.NewGuid();
+        sender.LossRate = 100;
+        await sender.SendAsync(
+            new Packet(MessageType.Heartbeat, sender.NextSeq(), Payloads.EncodeHeartbeat(deviceId)),
+            endpoint
+        );
+        Assert.Equal(0, sender.GetStatistics().SentPackets);
+        Assert.Equal(1, sender.GetStatistics().DroppedOutgoingPackets);
+
+        sender.LossRate = 0;
+        receiver.LossRate = 100;
+        await sender.SendAsync(
+            new Packet(MessageType.Heartbeat, sender.NextSeq(), Payloads.EncodeHeartbeat(deviceId)),
+            endpoint
+        );
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await receiver.ReceiveAsync(timeout.Token)
+        );
+
+        Assert.Equal(1, sender.GetStatistics().SentPackets);
+        Assert.Equal(1, receiver.GetStatistics().ReceivedPackets);
+        Assert.Equal(1, receiver.GetStatistics().DroppedIncomingPackets);
+    }
+
+    [Fact]
+    public async Task SendAsync_ToClosedPort_DoesNotStopReceiveLoop()
+    {
+        using var receiver = new UdpTransport();
+        IPEndPoint closedEndpoint;
+        using (
+            var unused = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp)
+        )
+        {
+            unused.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+            closedEndpoint = (IPEndPoint)unused.LocalEndPoint!;
+        }
+        var deviceId = Guid.NewGuid();
+        await receiver.SendAsync(
+            new Packet(
+                MessageType.Heartbeat,
+                receiver.NextSeq(),
+                Payloads.EncodeHeartbeat(deviceId)
+            ),
+            closedEndpoint
+        );
+
+        using var sender = new UdpTransport();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var packet = new Packet(
+            MessageType.Heartbeat,
+            sender.NextSeq(),
+            Payloads.EncodeHeartbeat(deviceId)
+        );
+        await sender.SendAsync(packet, new IPEndPoint(IPAddress.Loopback, receiver.LocalPort));
+        var received = await receiver.ReceiveAsync(timeout.Token);
+
+        Assert.Equal(packet.Seq, received.Packet.Seq);
+        Assert.Equal(packet.Payload, received.Packet.Payload);
     }
 }

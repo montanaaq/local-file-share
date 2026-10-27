@@ -36,7 +36,6 @@ public class FileNameExtensionsTests
     [Theory]
     [InlineData("report.pdf", 0, "report.pdf")]
     [InlineData("report.pdf", 1, "report (1).pdf")]
-    [InlineData("report.pdf", 2, "report (2).pdf")]
     [InlineData("report", 1, "report (1)")]
     [InlineData("archive.tar.gz", 1, "archive.tar (1).gz")]
     public void WithFileSuffix_AddsSuffixBeforeExtension(

@@ -3,7 +3,6 @@ using System.Threading.Tasks;
 
 namespace Protocol;
 
-// Entry access is protected by the FileTransferService state lock.
 internal sealed class TransferEntry
 {
     public FileTransfer Transfer { get; }
@@ -13,6 +12,9 @@ internal sealed class TransferEntry
     public OutgoingFileTransfer? OutgoingFile { get; private set; }
     public Task<bool>? IncomingCompletion { get; set; }
     public bool? ReceivedResult { get; set; }
+    public long LastActivity { get; set; }
+    public long? PauseStarted { get; set; }
+    public bool Resuming { get; set; }
 
     public bool IsFinal =>
         Transfer.State
@@ -44,8 +46,42 @@ internal sealed class TransferEntry
         }
     }
 
-    public IncomingFileTransfer? ChangeState(TransferState state)
+    /// <summary>
+    /// Устанавливает state и согласует ожидания ответа, счётчики паузы и файловые ресурсы.
+    /// timestamp — монотонная отметка времени; возвращённый входящий файл должен освободить вызывающий код.
+    /// </summary>
+    public IncomingFileTransfer? ChangeState(TransferState state, long timestamp = 0)
     {
+        if (state == TransferState.Paused)
+        {
+            if (PauseStarted is null)
+            {
+                PauseStarted = timestamp;
+                Transfer.PauseCount++;
+            }
+            Resuming = false;
+            Answer?.TrySetCanceled();
+            Result?.TrySetCanceled();
+        }
+        else if (state == TransferState.Transferring)
+        {
+            if (
+                Transfer.State == TransferState.Paused
+                && Transfer.Direction == TransferDirection.Outgoing
+            )
+            {
+                Transfer.ResumeCount++;
+            }
+            LastActivity = timestamp;
+            if (Transfer.Direction == TransferDirection.Outgoing)
+            {
+                PauseStarted = null;
+            }
+        }
+        else if (state == TransferState.Verifying)
+        {
+            PauseStarted = null;
+        }
         Transfer.State = state;
         if (!IsFinal)
         {
@@ -53,15 +89,17 @@ internal sealed class TransferEntry
         }
 
         OutgoingFile = null;
-        // Keep the answer, including rejection, until its waiter consumes it.
+        PauseStarted = null;
+        Resuming = false;
+
         if (state != TransferState.Rejected)
         {
             Answer?.TrySetCanceled();
-            Answer = null;
         }
         Result?.TrySetCanceled();
         var file = IncomingFile;
         IncomingFile = null;
+
         return file;
     }
 }

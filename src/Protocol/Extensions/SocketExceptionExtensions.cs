@@ -10,5 +10,7 @@ internal static class SocketExceptionExtensions
                 or SocketError.HostUnreachable
                 or SocketError.NetworkDown
                 or SocketError.AddressNotAvailable
-                or SocketError.ConnectionRefused;
+                or SocketError.ConnectionRefused
+                or SocketError.ConnectionReset
+                or SocketError.NetworkReset;
 }

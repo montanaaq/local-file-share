@@ -1,5 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 
-namespace ViewModels;
+namespace Client.ViewModels;
 
 public abstract class ViewModelBase : ObservableObject { }

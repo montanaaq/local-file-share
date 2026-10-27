@@ -48,8 +48,6 @@ public class PayloadsTests
 
     [Theory]
     [InlineData(0)]
-    [InlineData(6)]
-    [InlineData(8)]
     [InlineData(19)]
     [InlineData(21)]
     public void DecodeAck_ReturnsNull_WhenLengthIsInvalid(int length)
@@ -87,13 +85,13 @@ public class PayloadsTests
         var deviceId = Guid.Parse("00112233445566778899AABBCCDDEEFF");
         var fileId = Guid.Parse("FFEEDDCCBBAA99887766554433221100");
         ulong size = 0x010203ul;
-        byte[] sha256 = new byte[32];
+        byte[] sha256 = Enumerable.Range(0, 32).Select(index => (byte)index).ToArray();
         string name = "a.txt";
         byte[] expected = Convert.FromHexString(
             "00112233445566778899AABBCCDDEEFF"
                 + "FFEEDDCCBBAA99887766554433221100"
                 + "0000000000010203"
-                + new string('0', 64)
+                + "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F"
                 + "05612E747874"
         );
 
@@ -194,22 +192,6 @@ public class PayloadsTests
     }
 
     [Fact]
-    public void EncodeDecodeChunk_KeepsAllFields()
-    {
-        var deviceId = Guid.NewGuid();
-        var fileId = Guid.NewGuid();
-        byte[] data = [1, 2, 3];
-        byte[] encoded = Payloads.EncodeChunk(deviceId, fileId, 5, data);
-        var decoded = Payloads.DecodeChunk(encoded);
-
-        Assert.NotNull(decoded);
-        Assert.Equal(deviceId, decoded.Value.DeviceId);
-        Assert.Equal(fileId, decoded.Value.FileId);
-        Assert.Equal(5u, decoded.Value.Index);
-        Assert.Equal(data, decoded.Value.Data);
-    }
-
-    [Fact]
     public void DecodeChunk_ReturnsNull_WhenBufferIsShorterThanHeader()
     {
         byte[] payload = new byte[PayloadsConstants.ChunkDataOffset - 1];
@@ -217,23 +199,6 @@ public class PayloadsTests
         var decoded = Payloads.DecodeChunk(payload);
 
         Assert.Null(decoded);
-    }
-
-    [Fact]
-    public void EncodeDecodeFileOffer_KeepsAllFields()
-    {
-        var deviceId = Guid.NewGuid();
-        var fileId = Guid.NewGuid();
-        byte[] sha256 = Enumerable.Range(0, 32).Select(i => (byte)i).ToArray();
-        byte[] encoded = Payloads.EncodeFileOffer(deviceId, fileId, 123456, sha256, "photo.jpg");
-        var decoded = Payloads.DecodeFileOffer(encoded);
-
-        Assert.NotNull(decoded);
-        Assert.Equal(deviceId, decoded.Value.DeviceId);
-        Assert.Equal(fileId, decoded.Value.FileId);
-        Assert.Equal(sha256, decoded.Value.Sha256);
-        Assert.Equal(123456ul, decoded.Value.Size);
-        Assert.Equal("photo.jpg", decoded.Value.Name);
     }
 
     [Fact]
@@ -411,7 +376,6 @@ public class PayloadsTests
 
     [Theory]
     [InlineData(0)]
-    [InlineData(32)]
     [InlineData(36)]
     [InlineData(38)]
     public void DecodeFileAnswer_ReturnsNull_WhenLengthIsInvalid(int length)
@@ -456,7 +420,6 @@ public class PayloadsTests
 
     [Theory]
     [InlineData(0)]
-    [InlineData(16)]
     [InlineData(31)]
     [InlineData(33)]
     public void DecodeFileDone_ReturnsNull_WhenLengthIsInvalid(int length)

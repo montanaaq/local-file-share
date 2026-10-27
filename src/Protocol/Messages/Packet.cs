@@ -6,10 +6,14 @@ namespace Protocol;
 
 public sealed record Packet(MessageType Type, uint Seq, byte[] Payload)
 {
-    public const int HeaderSize = 12; // Version, type, sequence, length and CRC: 1 + 1 + 4 + 2 + 4 bytes.
+    public const int HeaderSize = 12;
     public const int MaxPayloadSize =
         PayloadsConstants.ChunkDataOffset + ProtocolConstants.ChunkSize;
 
+    /// <summary>
+    /// Собирает заголовок и payload текущего пакета в сетевом порядке байт и вычисляет CRC32.
+    /// </summary>
+    /// <returns>Готовая UDP-датаграмма; неизвестный тип и превышение размера приводят к исключению.</returns>
     public byte[] Serialize()
     {
         if (!Enum.IsDefined(Type))
@@ -28,16 +32,25 @@ public sealed record Packet(MessageType Type, uint Seq, byte[] Payload)
         byte[] buffer = new byte[HeaderSize + Payload.Length];
         buffer[0] = 1;
         buffer[1] = (byte)Type;
+
         BinaryPrimitives.WriteUInt32BigEndian(buffer.AsSpan(PacketOffsets.SeqOffset), Seq);
         BinaryPrimitives.WriteUInt16BigEndian(
             buffer.AsSpan(PacketOffsets.LengthOffset),
             (ushort)Payload.Length
         );
+
         Payload.CopyTo(buffer, HeaderSize);
+
         BinaryPrimitives.WriteUInt32BigEndian(buffer.AsSpan(PacketOffsets.CrcOffset), Crc(buffer));
+
         return buffer;
     }
 
+    /// <summary>
+    /// Проверяет заголовок, длину и CRC32 датаграммы. Формат payload проверяется отдельно.
+    /// </summary>
+    /// <param name="data">Полные байты одной принятой UDP-датаграммы, включая заголовок.</param>
+    /// <returns>Разобранный пакет либо null при некорректном заголовке или CRC32.</returns>
     public static Packet? Parse(ReadOnlySpan<byte> data)
     {
         if (
@@ -74,6 +87,7 @@ public sealed record Packet(MessageType Type, uint Seq, byte[] Payload)
     {
         byte[] copy = data.ToArray();
         copy.AsSpan(PacketOffsets.CrcOffset, sizeof(uint)).Clear();
+
         return Crc32.HashToUInt32(copy);
     }
 }

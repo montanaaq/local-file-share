@@ -21,29 +21,20 @@ internal sealed class OutgoingFileTransfer
         string? sourcePath = null
     )
     {
-        if (fileSize > (ulong)ProtocolConstants.MaxFileSize)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(fileSize),
-                fileSize,
-                "File size exceeds the maximum allowed size"
-            );
-        }
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(
+            fileSize,
+            (ulong)ProtocolConstants.MaxFileSize
+        );
 
-        if (sha256 is null)
-        {
-            throw new ArgumentNullException(nameof(sha256), "Value cannot be null");
-        }
+        ArgumentNullException.ThrowIfNull(sha256);
 
         if (sha256.Length != PayloadsConstants.Sha256Size)
         {
             throw new ArgumentException("SHA-256 must contain 32 bytes", nameof(sha256));
         }
 
-        if (
-            string.IsNullOrEmpty(fileName)
-            || Encoding.UTF8.GetByteCount(fileName) > PayloadsConstants.MaxNameBytes
-        )
+        ArgumentException.ThrowIfNullOrEmpty(fileName);
+        if (Encoding.UTF8.GetByteCount(fileName) > PayloadsConstants.MaxNameBytes)
         {
             throw new ArgumentException(
                 "File name must contain 1 to 255 UTF-8 bytes",
@@ -64,6 +55,12 @@ internal sealed class OutgoingFileTransfer
         };
     }
 
+    /// <summary>
+    /// Читает размер и SHA-256 существующего файла и подготавливает метаданные предложения.
+    /// </summary>
+    /// <param name="peerDeviceId">Идентификатор удалённого устройства из списка известных устройств.</param>
+    /// <param name="filePath">Путь к файлу, который требуется отправить.</param>
+    /// <param name="ct">Токен отмены операции.</param>
     public static async Task<OutgoingFileTransfer> PrepareAsync(
         Guid peerDeviceId,
         string filePath,
@@ -79,14 +76,7 @@ internal sealed class OutgoingFileTransfer
             FileShare.Read
         );
         long fileSize = stream.Length;
-        if (fileSize > ProtocolConstants.MaxFileSize)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(fileSize),
-                fileSize,
-                "File size exceeds the maximum allowed size"
-            );
-        }
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(fileSize, ProtocolConstants.MaxFileSize);
 
         byte[] sha256 = await SHA256.HashDataAsync(stream, ct).ConfigureAwait(false);
         ct.ThrowIfCancellationRequested();
@@ -99,6 +89,11 @@ internal sealed class OutgoingFileTransfer
         );
     }
 
+    /// <summary>
+    /// Повторно открывает исходный файл и сверяет размер и SHA-256: файл мог измениться за время ожидания решения.
+    /// </summary>
+    /// <param name="ct">Токен отмены операции.</param>
+    /// <returns>Поток чтения с позицией 0; вызывающий код обязан его освободить.</returns>
     public async Task<FileStream> OpenAsync(CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -110,7 +105,6 @@ internal sealed class OutgoingFileTransfer
         var stream = new FileStream(_sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read);
         try
         {
-            // The source may have changed while waiting for the receiver to decide.
             if (
                 (ulong)stream.Length != Transfer.FileSize
                 || !(await SHA256.HashDataAsync(stream, ct).ConfigureAwait(false))
@@ -139,14 +133,7 @@ internal sealed class OutgoingFileTransfer
             throw new InvalidOperationException("Unexpected acknowledged chunk index");
         }
 
-        if (index * (ulong)ProtocolConstants.ChunkSize >= Transfer.FileSize)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(index),
-                index,
-                "Chunk index is outside the file bounds"
-            );
-        }
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, Transfer.ChunkCount);
 
         Transfer.NextIndex++;
     }

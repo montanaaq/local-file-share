@@ -24,11 +24,16 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
         _stream = fileStream;
         _fileSize = fileSize;
 
-        ulong chunkSize = (ulong)ProtocolConstants.ChunkSize;
+        ulong chunkSize = ProtocolConstants.ChunkSize;
         int chunkCount = (int)((fileSize + chunkSize - 1) / chunkSize);
         _receivedChunks = new bool[chunkCount];
     }
 
+    /// <summary>
+    /// Создаёт уникальный .part и таблицу принятых чанков для файла объявленного размера.
+    /// </summary>
+    /// <param name="fileSize">Ожидаемый размер всего файла в байтах.</param>
+    /// <param name="directory">Папка для временного и итогового файла.</param>
     public static IncomingFileTransfer Create(ulong fileSize, string directory)
     {
         Directory.CreateDirectory(directory);
@@ -51,6 +56,13 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Синхронно записывает допустимый чанк по его смещению; повтор принятого чанка не изменяет файл.
+    /// </summary>
+    /// <param name="index">Индекс чанка, начиная с нуля.</param>
+    /// <param name="data">Байты чанка; длина должна соответствовать оставшейся части файла.</param>
+    /// <param name="nextIndex">Первый недостающий индекс после обработки, включая пропуски ранее принятых чанков.</param>
+    /// <returns>false при неверном индексе, длине или закрытом файле.</returns>
     public bool TryWriteChunk(uint index, ReadOnlySpan<byte> data, out uint nextIndex)
     {
         _fileLock.Wait();
@@ -65,12 +77,15 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Проверяет наличие всех чанков, фактическую длину .part и SHA-256 перед сохранением.
+    /// </summary>
+    /// <param name="expectedSha256">32 байта SHA-256 из принятого FILE_OFFER.</param>
+    /// <param name="ct">Токен отмены операции.</param>
+    /// <returns>true, если все данные получены и хеш совпал.</returns>
     public async Task<bool> VerifyAsync(byte[] expectedSha256, CancellationToken ct)
     {
-        if (expectedSha256 is null)
-        {
-            throw new ArgumentNullException(nameof(expectedSha256), "Value cannot be null");
-        }
+        ArgumentNullException.ThrowIfNull(expectedSha256);
 
         if (expectedSha256.Length != PayloadsConstants.Sha256Size)
         {
@@ -81,13 +96,7 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
 
         try
         {
-            if (_disposed)
-            {
-                throw new ObjectDisposedException(
-                    nameof(IncomingFileTransfer),
-                    "Object has been disposed"
-                );
-            }
+            ObjectDisposedException.ThrowIf(_disposed, this);
 
             _verified = false;
 
@@ -115,6 +124,12 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// После успешной VerifyAsync переименовывает .part, очищая имя по правилам Windows и разрешая коллизии суффиксом.
+    /// </summary>
+    /// <param name="fileName">Предложенное удалённым устройством имя файла; путь использоваться не будет.</param>
+    /// <param name="ct">Токен отмены операции.</param>
+    /// <returns>Путь к сохранённому файлу. Существующие файлы не перезаписываются.</returns>
     public async Task<string> SaveAsync(string fileName, CancellationToken ct)
     {
         string safeName = fileName.SanitizeFileName();
@@ -122,13 +137,7 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
 
         try
         {
-            if (_disposed)
-            {
-                throw new ObjectDisposedException(
-                    nameof(IncomingFileTransfer),
-                    "Object has been disposed"
-                );
-            }
+            ObjectDisposedException.ThrowIf(_disposed, this);
 
             if (!_verified)
             {

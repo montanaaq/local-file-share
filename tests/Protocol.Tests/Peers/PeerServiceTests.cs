@@ -19,21 +19,21 @@ public class PeerServiceTests
         {
             await WaitForPeerAsync(first, second.DeviceId, PeerAvailability.Available, cts.Token);
             await WaitForPeerAsync(second, first.DeviceId, PeerAvailability.Available, cts.Token);
-            var initial = Assert.Single(first.GetPeers());
+            var initial = GetPeer(first, second.DeviceId);
             Assert.Equal("Second", initial.Name);
             Assert.Equal(second.LocalPort, initial.Port);
 
             await Task.Delay(TimeSpan.FromMilliseconds(1500), cts.Token);
-            Assert.True(Assert.Single(first.GetPeers()).LastSeen > initial.LastSeen);
+            Assert.True(GetPeer(first, second.DeviceId).LastSeen > initial.LastSeen);
 
             second.LossRate = 100;
             await WaitForPeerAsync(first, second.DeviceId, PeerAvailability.Unreachable, cts.Token);
             await WaitForPeerAsync(first, second.DeviceId, PeerAvailability.Offline, cts.Token);
-            Assert.Single(first.GetPeers());
+            GetPeer(first, second.DeviceId);
 
             second.LossRate = 0;
             await WaitForPeerAsync(first, second.DeviceId, PeerAvailability.Available, cts.Token);
-            Assert.Single(first.GetPeers());
+            GetPeer(first, second.DeviceId);
         }
         finally
         {
@@ -72,7 +72,8 @@ public class PeerServiceTests
                 target
             );
             await WaitForPeerAsync(service, deviceId, PeerAvailability.Available, cts.Token);
-            Assert.Equal(sender.LocalPort, Assert.Single(service.GetPeers()).Port);
+            Assert.Equal(sender.LocalPort, GetPeer(service, deviceId).Port);
+            Assert.DoesNotContain(service.GetPeers(), peer => peer.DeviceId == service.DeviceId);
 
             await moved.SendAsync(
                 new Packet(
@@ -82,12 +83,12 @@ public class PeerServiceTests
                 ),
                 target
             );
-            while (Assert.Single(service.GetPeers()).Port != moved.LocalPort)
+            while (GetPeer(service, deviceId).Port != moved.LocalPort)
             {
                 await Task.Delay(20, cts.Token);
             }
 
-            Assert.Equal("Renamed", Assert.Single(service.GetPeers()).Name);
+            Assert.Equal("Renamed", GetPeer(service, deviceId).Name);
         }
         finally
         {
@@ -132,7 +133,10 @@ public class PeerServiceTests
                 );
                 Assert.Equal(first.Packet.Seq, retry.Packet.Seq);
                 Assert.Equal(first.Packet.Payload, retry.Packet.Payload);
-                Assert.Equal(0u, service.Transfers.GetTransfer(remoteId, fileId).NextIndex);
+                Assert.Equal(
+                    0u,
+                    service.Transfers.GetTransfer(new TransferKey(remoteId, fileId)).NextIndex
+                );
 
                 var packet = retry.Packet;
                 var endpoint = retry.From;
@@ -301,8 +305,7 @@ public class PeerServiceTests
                 var sending = sender.OfferFileAsync(receiver.DeviceId, path, cts.Token);
                 var offer = await offered.Task.WaitAsync(cts.Token);
                 await receiver.AnswerFileOfferAsync(
-                    sender.DeviceId,
-                    offer.FileId,
+                    new TransferKey(sender.DeviceId, offer.FileId),
                     true,
                     directory,
                     cts.Token
@@ -314,12 +317,16 @@ public class PeerServiceTests
                 Assert.Equal(expectedIndex, transfer.NextIndex);
                 Assert.Equal(
                     expectedIndex,
-                    receiver.Transfers.GetTransfer(sender.DeviceId, offer.FileId).NextIndex
+                    receiver
+                        .Transfers.GetTransfer(new TransferKey(sender.DeviceId, offer.FileId))
+                        .NextIndex
                 );
                 Assert.Equal(TransferState.Completed, transfer.State);
                 Assert.Equal(
                     TransferState.Completed,
-                    receiver.Transfers.GetTransfer(sender.DeviceId, offer.FileId).State
+                    receiver
+                        .Transfers.GetTransfer(new TransferKey(sender.DeviceId, offer.FileId))
+                        .State
                 );
                 string savedPath = Assert.Single(
                     Directory.GetFiles(directory),
@@ -397,8 +404,7 @@ public class PeerServiceTests
                     cts.Token
                 );
                 var answering = receiver.AnswerFileOfferAsync(
-                    remoteId,
-                    fileId,
+                    new TransferKey(remoteId, fileId),
                     true,
                     directory,
                     cts.Token
@@ -490,7 +496,7 @@ public class PeerServiceTests
 
                 Assert.Equal(
                     validHash ? TransferState.Completed : TransferState.Failed,
-                    receiver.Transfers.GetTransfer(remoteId, fileId).State
+                    receiver.Transfers.GetTransfer(new TransferKey(remoteId, fileId)).State
                 );
                 Assert.Empty(Directory.GetFiles(directory, "*.part"));
                 if (validHash)
@@ -626,10 +632,7 @@ public class PeerServiceTests
             await WaitForPeerAsync(service, remoteId, PeerAvailability.Available, timeout.Token);
             clock.MoveUtc(TimeSpan.FromDays(1));
             await Task.Delay(TimeSpan.FromMilliseconds(1300), timeout.Token);
-            Assert.Equal(
-                PeerAvailability.Available,
-                Assert.Single(service.GetPeers()).Availability
-            );
+            Assert.Equal(PeerAvailability.Available, GetPeer(service, remoteId).Availability);
 
             clock.MoveUtc(TimeSpan.FromDays(-2));
             clock.AdvanceElapsed(ProtocolConstants.PeerTimeout);
@@ -641,6 +644,393 @@ public class PeerServiceTests
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running);
         }
     }
+
+    [Fact]
+    public async Task SendTextAsync_DeliversTextOnce_WhenReliablePacketIsRepeated()
+    {
+        await using var service = new PeerService("Receiver", 0);
+        using var remote = new UdpTransport();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var remoteId = Guid.NewGuid();
+        var endpoint = new IPEndPoint(IPAddress.Loopback, service.LocalPort);
+        int receivedCount = 0;
+        var delivered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        service.TextReceived += (sender, text) =>
+        {
+            Assert.Equal(remoteId, sender);
+            Assert.Equal("Clipboard text", text);
+            if (Interlocked.Increment(ref receivedCount) == 2)
+            {
+                delivered.TrySetResult();
+            }
+        };
+        var running = service.RunAsync(timeout.Token);
+        try
+        {
+            await remote.SendAsync(
+                new Packet(
+                    MessageType.PeerInfo,
+                    remote.NextSeq(),
+                    Payloads.EncodePeerInfo(remoteId, "Sender")
+                ),
+                endpoint
+            );
+            await WaitForPeerAsync(service, remoteId, PeerAvailability.Available, timeout.Token);
+            var packet = new Packet(
+                MessageType.Clipboard,
+                remote.NextSeq(),
+                Payloads.EncodeClipboard(remoteId, "Clipboard text")
+            );
+            await remote.SendReliableAsync(packet, endpoint, service.DeviceId, timeout.Token);
+            await remote.SendReliableAsync(packet, endpoint, service.DeviceId, timeout.Token);
+            await remote.SendReliableAsync(
+                packet with
+                {
+                    Seq = remote.NextSeq(),
+                },
+                endpoint,
+                service.DeviceId,
+                timeout.Token
+            );
+            await delivered.Task.WaitAsync(timeout.Token);
+            Assert.Equal(2, Volatile.Read(ref receivedCount));
+        }
+        finally
+        {
+            timeout.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running);
+        }
+    }
+
+    [Fact]
+    public async Task SetExchangeEnabled_PreservesSession_AndTextDeliveryWorksAfterEnabling()
+    {
+        await using var first = new PeerService("First", 0);
+        await using var second = new PeerService("Second", 0);
+        first.AddManualEndpoint(new IPEndPoint(IPAddress.Loopback, second.LocalPort));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var firstRun = first.RunAsync(timeout.Token);
+        var secondRun = second.RunAsync(timeout.Token);
+        var received = new TaskCompletionSource<string>(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        second.TextReceived += (_, text) => received.TrySetResult(text);
+        try
+        {
+            await WaitForPeerAsync(
+                first,
+                second.DeviceId,
+                PeerAvailability.Available,
+                timeout.Token
+            );
+            await WaitForPeerAsync(
+                second,
+                first.DeviceId,
+                PeerAvailability.Available,
+                timeout.Token
+            );
+            var deviceId = second.DeviceId;
+            int port = second.LocalPort;
+            second.SetExchangeEnabled(false);
+            Assert.False(second.IsExchangeEnabled);
+            await Assert.ThrowsAsync<TimeoutException>(() =>
+                first.SendTextAsync(second.DeviceId, "Dropped", timeout.Token)
+            );
+            await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await second.SendTextAsync(first.DeviceId, "Disabled", timeout.Token)
+            );
+            Assert.False(received.Task.IsCompleted);
+            Assert.False(secondRun.IsCompleted);
+
+            second.SetExchangeEnabled(true);
+            Assert.Equal(deviceId, second.DeviceId);
+            Assert.Equal(port, second.LocalPort);
+            await first.SendTextAsync(second.DeviceId, "Restored", timeout.Token);
+            Assert.Equal("Restored", await received.Task.WaitAsync(timeout.Token));
+            Assert.True(first.GetStatistics().AcknowledgmentsReceived > 0);
+        }
+        finally
+        {
+            timeout.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => firstRun);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => secondRun);
+        }
+    }
+
+    [Fact]
+    public async Task OfferFileAsync_ResumesAfterBothSidesPause_AndSavesFiveMiBWithMatchingHash()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"protocol-resume-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string source = Path.Combine(directory, "source.bin");
+        string destination = Path.Combine(directory, "received");
+        byte[] data = new byte[5 * 1024 * 1024];
+        Random.Shared.NextBytes(data);
+        await File.WriteAllBytesAsync(source, data);
+        try
+        {
+            await using var sender = new PeerService("Sender", 0);
+            await using var receiver = new PeerService("Receiver", 0);
+            sender.AddManualEndpoint(new IPEndPoint(IPAddress.Loopback, receiver.LocalPort));
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            var senderRun = sender.RunAsync(timeout.Token);
+            var receiverRun = receiver.RunAsync(timeout.Token);
+            var offered = new TaskCompletionSource<FileTransfer>(
+                TaskCreationOptions.RunContinuationsAsynchronously
+            );
+            receiver.Transfers.FileOffered += transfer => offered.TrySetResult(transfer);
+            int interrupted = 0;
+            receiver.Transfers.TransferChanged += transfer =>
+            {
+                if (
+                    transfer.State == TransferState.Transferring
+                    && transfer.NextIndex >= 4
+                    && Interlocked.CompareExchange(ref interrupted, 1, 0) == 0
+                )
+                {
+                    receiver.LossRate = 100;
+                }
+            };
+            try
+            {
+                await WaitForPeerAsync(
+                    sender,
+                    receiver.DeviceId,
+                    PeerAvailability.Available,
+                    timeout.Token
+                );
+                await WaitForPeerAsync(
+                    receiver,
+                    sender.DeviceId,
+                    PeerAvailability.Available,
+                    timeout.Token
+                );
+                var sending = sender.OfferFileAsync(receiver.DeviceId, source, timeout.Token);
+                var offer = await offered.Task.WaitAsync(timeout.Token);
+                await receiver.AnswerFileOfferAsync(
+                    new TransferKey(sender.DeviceId, offer.FileId),
+                    true,
+                    destination,
+                    timeout.Token
+                );
+                Assert.Equal(TransferState.Paused, (await sending).State);
+                await WaitForTransferStateAsync(
+                    receiver,
+                    sender.DeviceId,
+                    offer.FileId,
+                    TransferState.Paused,
+                    timeout.Token
+                );
+                uint nextIndex = receiver
+                    .Transfers.GetTransfer(new TransferKey(sender.DeviceId, offer.FileId))
+                    .NextIndex;
+                Assert.InRange(nextIndex, 4u, offer.ChunkCount - 1);
+                Assert.Single(Directory.GetFiles(destination, "*.part"));
+
+                receiver.LossRate = 0;
+                await WaitForTransferStateAsync(
+                    sender,
+                    receiver.DeviceId,
+                    offer.FileId,
+                    TransferState.Completed,
+                    timeout.Token
+                );
+                await WaitForTransferStateAsync(
+                    receiver,
+                    sender.DeviceId,
+                    offer.FileId,
+                    TransferState.Completed,
+                    timeout.Token
+                );
+                var saved = receiver.Transfers.GetTransfer(
+                    new TransferKey(sender.DeviceId, offer.FileId)
+                );
+                Assert.NotNull(saved.SavedPath);
+                Assert.Equal(
+                    SHA256.HashData(data),
+                    SHA256.HashData(await File.ReadAllBytesAsync(saved.SavedPath))
+                );
+                Assert.Empty(Directory.GetFiles(destination, "*.part"));
+                Assert.Equal(1, Volatile.Read(ref interrupted));
+                Assert.True(saved.ResumeCount >= 1);
+            }
+            finally
+            {
+                timeout.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => senderRun);
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => receiverRun);
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static async Task WaitForTransferStateAsync(
+        PeerService service,
+        Guid peerId,
+        Guid fileId,
+        TransferState state,
+        CancellationToken ct
+    )
+    {
+        while (service.Transfers.GetTransfer(new TransferKey(peerId, fileId)).State != state)
+        {
+            await Task.Delay(20, ct);
+        }
+    }
+
+    [Fact]
+    public async Task SendTextAsync_RefreshesAvailabilityFromAck_WithoutHeartbeatReplies()
+    {
+        var clock = new TestTimeProvider();
+        await using var service = new PeerService("Sender", 0, clock);
+        using var remote = new UdpTransport();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var remoteId = Guid.NewGuid();
+        var running = service.RunAsync(timeout.Token);
+        try
+        {
+            await remote.SendAsync(
+                new Packet(
+                    MessageType.PeerInfo,
+                    remote.NextSeq(),
+                    Payloads.EncodePeerInfo(remoteId, "Remote")
+                ),
+                new IPEndPoint(IPAddress.Loopback, service.LocalPort)
+            );
+            await WaitForPeerAsync(service, remoteId, PeerAvailability.Available, timeout.Token);
+            clock.AdvanceElapsed(ProtocolConstants.PeerTimeout);
+            var sending = service.SendTextAsync(remoteId, "Activity", timeout.Token);
+            while (true)
+            {
+                var message = await remote.ReceiveAsync(timeout.Token);
+                if (message.Packet.Type == MessageType.Clipboard)
+                {
+                    await remote.SendAckAsync(message.Packet.Seq, message.From, remoteId);
+                    break;
+                }
+            }
+            await sending;
+            await Task.Delay(1300, timeout.Token);
+            Assert.Equal(PeerAvailability.Available, GetPeer(service, remoteId).Availability);
+        }
+        finally
+        {
+            timeout.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running);
+        }
+    }
+
+    [Fact]
+    public async Task CancelRun_CancelsIndependentPendingSends()
+    {
+        await using var service = new PeerService("Sender", 0);
+        using var remote = new UdpTransport();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var runningCts = new CancellationTokenSource();
+        var remoteId = Guid.NewGuid();
+        var running = service.RunAsync(runningCts.Token);
+        try
+        {
+            await remote.SendAsync(
+                new Packet(
+                    MessageType.PeerInfo,
+                    remote.NextSeq(),
+                    Payloads.EncodePeerInfo(remoteId, "Remote")
+                ),
+                new IPEndPoint(IPAddress.Loopback, service.LocalPort)
+            );
+            await WaitForPeerAsync(service, remoteId, PeerAvailability.Available, timeout.Token);
+            var sending = service.SendTextAsync(remoteId, "Pending", CancellationToken.None);
+            while ((await remote.ReceiveAsync(timeout.Token)).Packet.Type != MessageType.Clipboard)
+            { }
+            runningCts.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                sending.WaitAsync(timeout.Token)
+            );
+        }
+        finally
+        {
+            runningCts.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running);
+        }
+    }
+
+    [Fact]
+    public async Task SetExchangeEnabled_PausesPendingFile_WithoutResettingBudgetOnRepeatedToggles()
+    {
+        string path = Path.GetTempFileName();
+        try
+        {
+            var clock = new TestTimeProvider();
+            await using var service = new PeerService("Sender", 0, clock);
+            using var remote = new UdpTransport();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var remoteId = Guid.NewGuid();
+            var running = service.RunAsync(timeout.Token);
+            try
+            {
+                await remote.SendAsync(
+                    new Packet(
+                        MessageType.PeerInfo,
+                        remote.NextSeq(),
+                        Payloads.EncodePeerInfo(remoteId, "Remote")
+                    ),
+                    new IPEndPoint(IPAddress.Loopback, service.LocalPort)
+                );
+                await WaitForPeerAsync(
+                    service,
+                    remoteId,
+                    PeerAvailability.Available,
+                    timeout.Token
+                );
+                var sending = service.OfferFileAsync(remoteId, path, timeout.Token);
+                var offerPacket = await ReceiveMessageAsync(
+                    remote,
+                    remoteId,
+                    MessageType.FileOffer,
+                    timeout.Token
+                );
+                var offer = Payloads.DecodeFileOffer(offerPacket.Packet.Payload)!.Value;
+                await remote.SendAckAsync(offerPacket.Packet.Seq, offerPacket.From, remoteId);
+
+                service.SetExchangeEnabled(false);
+                Assert.Equal(TransferState.Paused, (await sending.WaitAsync(timeout.Token)).State);
+                clock.AdvanceElapsed(TimeSpan.FromSeconds(30));
+                service.SetExchangeEnabled(true);
+                service.SetExchangeEnabled(false);
+                service.SetExchangeEnabled(false);
+                var paused = service.Transfers.GetTransfer(new TransferKey(remoteId, offer.FileId));
+                Assert.Equal(TransferState.Paused, paused.State);
+                Assert.Equal(
+                    ProtocolConstants.PauseTimeout - TimeSpan.FromSeconds(30),
+                    paused.PauseRemaining
+                );
+                Assert.Equal(1, paused.PauseCount);
+                Assert.Equal(
+                    TransferState.Cancelled,
+                    service.CancelPausedTransfer(new TransferKey(remoteId, offer.FileId)).State
+                );
+            }
+            finally
+            {
+                timeout.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running);
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    private static Peer GetPeer(PeerService service, Guid deviceId) =>
+        Assert.Single(service.GetPeers(), peer => peer.DeviceId == deviceId);
 
     private sealed class TestTimeProvider : TimeProvider
     {

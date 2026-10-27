@@ -7,16 +7,13 @@ namespace Protocol;
 internal static class FileNameExtensions
 {
     /// <summary>
-    /// Replaces control characters and characters forbidden on Windows with underscores,
-    /// trims surrounding spaces and dots, and changes reserved device names.
-    /// Returns "file" if the sanitized name is empty. Does not check uniqueness.
+    /// Заменяет запрещённые в Windows символы и зарезервированные имена, удаляет крайние точки и пробелы.
     /// </summary>
+    /// <param name="fileName">Полученное от удалённого устройства имя; разделители пути также заменяются.</param>
+    /// <returns>Безопасное имя либо file для пустого результата. Наличие такого файла на диске не проверяется.</returns>
     internal static string SanitizeFileName(this string fileName)
     {
-        if (fileName is null)
-        {
-            throw new ArgumentNullException(nameof(fileName), "Value cannot be null");
-        }
+        ArgumentNullException.ThrowIfNull(fileName);
 
         char[] chars = fileName.ToCharArray();
         const string forbidden = "<>:\"/\\|?*";
@@ -46,27 +43,16 @@ internal static class FileNameExtensions
     }
 
     /// <summary>
-    /// Adds a " (number)" suffix before the sanitized file extension;
-    /// zero leaves the name unchanged. Truncates the name when necessary,
-    /// including the extension, to fit within
-    /// <see cref="PayloadsConstants.MaxNameBytes"/> UTF-8 bytes
-    /// without splitting surrogate pairs. Does not check whether the file exists.
+    /// Добавляет суффикс перед расширением и ограничивает длину 255 байтами UTF-8 без разрыва суррогатной пары.
     /// </summary>
+    /// <param name="fileName">Уже очищенное имя файла.</param>
+    /// <param name="number">Номер коллизии: 0 не добавляет суффикс, положительное значение добавляет (number).</param>
+    /// <returns>Имя подходящей длины; существование файла и уникальность проверяются отдельно.</returns>
     internal static string WithFileSuffix(this string fileName, int number)
     {
-        if (fileName is null)
-        {
-            throw new ArgumentNullException(nameof(fileName), "Value cannot be null");
-        }
+        ArgumentNullException.ThrowIfNull(fileName);
 
-        if (number < 0)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(number),
-                number,
-                "Suffix number cannot be negative"
-            );
-        }
+        ArgumentOutOfRangeException.ThrowIfNegative(number);
 
         string suffix = number == 0 ? string.Empty : $" ({number})";
         string shortenedName = fileName;

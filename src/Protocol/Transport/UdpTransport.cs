@@ -13,10 +13,10 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
     private readonly Socket _socket;
     private uint _nextSeq;
 
-    private readonly Channel<(Packet Packet, IPEndPoint From)> _incoming = Channel.CreateBounded<(
-        Packet Packet,
-        IPEndPoint From
-    )>(ProtocolConstants.IncomingQueueCapacity);
+    private readonly Channel<(Packet Packet, IPEndPoint From, int Generation)> _incoming =
+        Channel.CreateBounded<(Packet Packet, IPEndPoint From, int Generation)>(
+            ProtocolConstants.IncomingQueueCapacity
+        );
 
     private readonly ConcurrentDictionary<
         (Guid DeviceId, IPEndPoint Endpoint, uint Seq),
@@ -29,7 +29,23 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
     private readonly Lock _ackLock = new();
     private Exception? _receiveError;
     private int _lossRate;
+    private int _exchangeEnabled = 1;
+    private int _exchangeGeneration;
+    private long _sentPackets;
+    private long _receivedPackets;
+    private long _acknowledgmentsSent;
+    private long _acknowledgmentsReceived;
+    private long _retries;
+    private long _droppedOutgoingPackets;
+    private long _droppedIncomingPackets;
+    private long _invalidPackets;
+    private long _queueOverflows;
+    private long _errors;
 
+    /// <summary>
+    /// Открывает IPv4 UDP-сокет с broadcast и запускает единый цикл приёма.
+    /// </summary>
+    /// <param name="localPort">Локальный порт; 0 выбирает свободный порт. Для приложения передавайте DefaultPort явно.</param>
     public UdpTransport(int localPort = 0)
     {
         _socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
@@ -50,41 +66,94 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
 
     public int LocalPort => ((IPEndPoint)_socket.LocalEndPoint!).Port;
 
-    public uint NextSeq() => unchecked(Interlocked.Increment(ref _nextSeq) - 1); // Overflow wraps the sequence number to zero.
+    public bool IsExchangeEnabled
+    {
+        get => Volatile.Read(ref _exchangeEnabled) != 0;
+        set
+        {
+            lock (_ackLock)
+            {
+                ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+
+                int enabled = value ? 1 : 0;
+                if (_exchangeEnabled == enabled)
+                {
+                    return;
+                }
+
+                Interlocked.Increment(ref _exchangeGeneration);
+                Volatile.Write(ref _exchangeEnabled, enabled);
+            }
+        }
+    }
+
+    public TransportStatistics GetStatistics() =>
+        new(
+            Interlocked.Read(ref _sentPackets),
+            Interlocked.Read(ref _receivedPackets),
+            Interlocked.Read(ref _acknowledgmentsSent),
+            Interlocked.Read(ref _acknowledgmentsReceived),
+            Interlocked.Read(ref _retries),
+            Interlocked.Read(ref _droppedOutgoingPackets),
+            Interlocked.Read(ref _droppedIncomingPackets),
+            Interlocked.Read(ref _invalidPackets),
+            Interlocked.Read(ref _queueOverflows),
+            Interlocked.Read(ref _errors)
+        );
+
+    public uint NextSeq() => unchecked(Interlocked.Increment(ref _nextSeq) - 1);
 
     public int LossRate
     {
         get => Volatile.Read(ref _lossRate);
         set
         {
-            if (value is < 0 or > 100)
-            {
-                throw new ArgumentOutOfRangeException(
-                    nameof(value),
-                    value,
-                    "Loss rate must be between 0 and 100"
-                );
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(value);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(value, 100);
 
             Volatile.Write(ref _lossRate, value);
         }
     }
 
-    public async Task SendAsync(Packet packet, IPEndPoint remote)
+    /// <summary>
+    /// Отправляет пакет без ожидания ACK с учётом LossRate и состояния обмена.
+    /// </summary>
+    /// <param name="packet">Пакет с уже назначенным seq; при повторе используйте тот же пакет.</param>
+    /// <param name="remote">IPv4-адрес и UDP-порт получателя.</param>
+    /// <param name="ct">Токен отмены операции.</param>
+    public async Task SendAsync(Packet packet, IPEndPoint remote, CancellationToken ct = default)
     {
-        if (Volatile.Read(ref _disposed) != 0)
-        {
-            throw new ObjectDisposedException(nameof(UdpTransport), "Object has been disposed");
-        }
+        ArgumentNullException.ThrowIfNull(packet);
+
+        ArgumentNullException.ThrowIfNull(remote);
+
+        ct.ThrowIfCancellationRequested();
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
         byte[] bytes = packet.Serialize();
 
-        if (ShouldDropPacket())
+        if (!IsExchangeEnabled || ShouldDropPacket())
         {
+            Interlocked.Increment(ref _droppedOutgoingPackets);
             return;
         }
 
-        await _socket.SendToAsync(bytes.AsMemory(), SocketFlags.None, remote);
+        try
+        {
+            await _socket
+                .SendToAsync(bytes.AsMemory(), SocketFlags.None, remote, ct)
+                .ConfigureAwait(false);
+            Interlocked.Increment(ref _sentPackets);
+            if (packet.Type == MessageType.Ack)
+            {
+                Interlocked.Increment(ref _acknowledgmentsSent);
+            }
+        }
+        catch (SocketException)
+        {
+            Interlocked.Increment(ref _errors);
+            throw;
+        }
     }
 
     public Task SendAckAsync(uint ackedSeq, IPEndPoint remote, Guid deviceId)
@@ -103,6 +172,8 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
             .ReceiveFromAsync(buffer, SocketFlags.None, new IPEndPoint(IPAddress.Any, 0), ct)
             .ConfigureAwait(false);
 
+        Interlocked.Increment(ref _receivedPackets);
+
         var packet = Packet.Parse(buffer.Span[..result.ReceivedBytes]);
         var from = (IPEndPoint)result.RemoteEndPoint;
 
@@ -117,14 +188,39 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
         {
             while (true)
             {
-                var (packet, from) = await ReceiveFromSocketAsync(buffer, ct).ConfigureAwait(false);
-                if (packet is null)
+                // Discard receives spanning a toggle as well as already queued packets.
+                int generation = Volatile.Read(ref _exchangeGeneration);
+                (Packet? Packet, IPEndPoint From) incoming;
+                try
                 {
+                    incoming = await ReceiveFromSocketAsync(buffer, ct).ConfigureAwait(false);
+                }
+                catch (SocketException exception)
+                    when (exception.SocketErrorCode
+                            is SocketError.ConnectionReset
+                                or SocketError.NetworkReset
+                                or SocketError.ConnectionRefused
+                    )
+                {
+                    // An ICMP error for an earlier datagram does not close a UDP listener.
+                    Interlocked.Increment(ref _errors);
                     continue;
                 }
 
-                if (ShouldDropPacket())
+                var (packet, from) = incoming;
+                if (
+                    !IsExchangeEnabled
+                    || generation != Volatile.Read(ref _exchangeGeneration)
+                    || ShouldDropPacket()
+                )
                 {
+                    Interlocked.Increment(ref _droppedIncomingPackets);
+                    continue;
+                }
+
+                if (packet is null)
+                {
+                    Interlocked.Increment(ref _invalidPackets);
                     continue;
                 }
 
@@ -134,13 +230,18 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
 
                     if (ack is null)
                     {
+                        Interlocked.Increment(ref _invalidPackets);
                         continue;
                     }
 
                     var key = (ack.Value.DeviceId, from, ack.Value.AckedSeq);
 
-                    if (_pendingAcks.TryGetValue(key, out var completion))
+                    if (
+                        _pendingAcks.TryGetValue(key, out var completion)
+                        && !completion.Task.IsCompleted
+                    )
                     {
+                        Interlocked.Increment(ref _acknowledgmentsReceived);
                         completion.TrySetResult(true);
                     }
 
@@ -149,11 +250,13 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
 
                 if (!Payloads.IsValid(packet.Type, packet.Payload))
                 {
+                    Interlocked.Increment(ref _invalidPackets);
                     continue;
                 }
 
-                if (!_incoming.Writer.TryWrite((packet, from)))
+                if (!_incoming.Writer.TryWrite((packet, from, generation)))
                 {
+                    Interlocked.Increment(ref _queueOverflows);
                     continue;
                 }
             }
@@ -161,6 +264,7 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
         catch (Exception exception)
         {
+            Interlocked.Increment(ref _errors);
             error = exception;
         }
         finally
@@ -181,11 +285,34 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
         }
     }
 
+    /// <summary>
+    /// Возвращает следующее проверенное сообщение из очереди, пропуская пакеты до отключения обмена.
+    /// ACK обрабатываются внутри транспорта и в эту очередь не попадают.
+    /// </summary>
+    /// <param name="ct">Токен отмены операции.</param>
+    /// <returns>Сообщение и адрес его отправителя. Очередь должен читать один потребитель.</returns>
     public async Task<(Packet Packet, IPEndPoint From)> ReceiveAsync(CancellationToken ct)
     {
-        return await _incoming.Reader.ReadAsync(ct);
+        while (true)
+        {
+            var incoming = await _incoming.Reader.ReadAsync(ct).ConfigureAwait(false);
+            if (IsExchangeEnabled && incoming.Generation == Volatile.Read(ref _exchangeGeneration))
+            {
+                return (incoming.Packet, incoming.From);
+            }
+
+            Interlocked.Increment(ref _droppedIncomingPackets);
+        }
     }
 
+    /// <summary>
+    /// Повторяет отправку одного пакета до совпадающего ACK или исчерпания попыток.
+    /// HEARTBEAT отправляется один раз; тайм-аут приводит к TimeoutException.
+    /// </summary>
+    /// <param name="packet">Пакет с назначенным seq, сохраняемым при повторах.</param>
+    /// <param name="remote">Адрес и порт получателя, с которыми сверяется источник ACK.</param>
+    /// <param name="remoteDeviceId">Ожидаемый deviceId отправителя ACK.</param>
+    /// <param name="ct">Токен отмены операции.</param>
     public async Task SendReliableAsync(
         Packet packet,
         IPEndPoint remote,
@@ -193,6 +320,10 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
         CancellationToken ct
     )
     {
+        ArgumentNullException.ThrowIfNull(packet);
+
+        ArgumentNullException.ThrowIfNull(remote);
+
         ct.ThrowIfCancellationRequested();
 
         var key = (remoteDeviceId, remote, packet.Seq);
@@ -202,10 +333,7 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
 
         lock (_ackLock)
         {
-            if (Volatile.Read(ref _disposed) != 0)
-            {
-                throw new ObjectDisposedException(nameof(UdpTransport), "Object has been disposed");
-            }
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
             if (_receiveError is not null)
             {
@@ -228,7 +356,12 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
             {
                 ct.ThrowIfCancellationRequested();
 
-                await SendAsync(packet, remote);
+                if (attempt > 0)
+                {
+                    Interlocked.Increment(ref _retries);
+                }
+
+                await SendAsync(packet, remote, ct).ConfigureAwait(false);
 
                 if (await WaitForAckAsync(completion.Task, ct).ConfigureAwait(false))
                 {
