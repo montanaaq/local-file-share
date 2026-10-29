@@ -206,6 +206,7 @@ public static class Payloads
 
         byte[] buffer = new byte[PayloadsConstants.PeerNameOffset + nameBytes.Length];
         buffer[PayloadsConstants.PeerNameLengthOffset] = (byte)nameBytes.Length;
+        
         deviceId.TryWriteBytes(
             buffer.AsSpan(0, PayloadsConstants.DeviceIdSize),
             bigEndian: true,

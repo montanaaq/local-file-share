@@ -68,6 +68,7 @@ internal sealed class OutgoingFileTransfer
     )
     {
         ct.ThrowIfCancellationRequested();
+
         string fullPath = Path.GetFullPath(filePath);
         await using var stream = new FileStream(
             fullPath,
@@ -76,10 +77,13 @@ internal sealed class OutgoingFileTransfer
             FileShare.Read
         );
         long fileSize = stream.Length;
+
         ArgumentOutOfRangeException.ThrowIfGreaterThan(fileSize, ProtocolConstants.MaxFileSize);
 
         byte[] sha256 = await SHA256.HashDataAsync(stream, ct).ConfigureAwait(false);
+
         ct.ThrowIfCancellationRequested();
+
         return new OutgoingFileTransfer(
             peerDeviceId,
             Path.GetFileName(fullPath),
@@ -97,6 +101,7 @@ internal sealed class OutgoingFileTransfer
     public async Task<FileStream> OpenAsync(CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
+
         if (_sourcePath is null)
         {
             throw new InvalidOperationException("Transfer has no source file path");

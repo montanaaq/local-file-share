@@ -18,7 +18,7 @@ internal sealed class NotificationDispatcher : IAsyncDisposable
     public event Action<Exception>? NotificationFailed;
 
     /// <summary>
-    /// Ставит вызовы подписчиков в фоновую очередь. Ошибка одного обработчика не прерывает остальные.
+    /// Ставит вызовы подписчиков в фоновую очередь, при этом ошибка одного обработчика не прерывает остальные.
     /// </summary>
     /// <param name="handlers">Делегат события со списком подписчиков; null ничего не ставит в очередь.</param>
     /// <param name="invoke">Действие, вызывающее одного подписчика с нужными аргументами.</param>
@@ -62,7 +62,7 @@ internal sealed class NotificationDispatcher : IAsyncDisposable
         var handlers = NotificationFailed;
         if (handlers is null)
         {
-            Trace.TraceError("Notification handler failed: {0}", error);
+            Trace.TraceError($"Notification handler failed: {error}");
             return;
         }
 
@@ -74,8 +74,8 @@ internal sealed class NotificationDispatcher : IAsyncDisposable
             }
             catch (Exception reportingError)
             {
-                Trace.TraceError("Notification handler failed: {0}", error);
-                Trace.TraceError("Notification error handler failed: {0}", reportingError);
+                Trace.TraceError($"Notification handler failed: {error}");
+                Trace.TraceError($"Notification error handler failed: {reportingError}");
             }
         }
     }

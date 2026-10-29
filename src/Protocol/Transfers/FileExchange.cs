@@ -127,8 +127,9 @@ internal sealed class FileExchange : IAsyncDisposable, ITransferSource
             GetExchangeToken(),
             _stopCts.Token
         );
-        CancellationToken ct = cts.Token;
+        var ct = cts.Token;
         ct.ThrowIfCancellationRequested();
+
         _resolveEndpoint(peerDeviceId);
         var transfer = await Transfers.PrepareOutgoingTransferAsync(peerDeviceId, filePath, ct);
         var key = new TransferKey(peerDeviceId, transfer.FileId);
@@ -201,6 +202,7 @@ internal sealed class FileExchange : IAsyncDisposable, ITransferSource
         );
         var ct = cts.Token;
         ct.ThrowIfCancellationRequested();
+
         _resolveEndpoint(key.PeerDeviceId);
         var transfer = Transfers.SetIncomingDecision(key, accepted, directory);
         try
@@ -218,17 +220,17 @@ internal sealed class FileExchange : IAsyncDisposable, ITransferSource
                     is { NextIndex: > 0 }
                         or { State: TransferState.Verifying or TransferState.Completed }
             ) { }
-        catch (Exception exception)
+        catch (OperationCanceledException cancelException)
         {
-            Transfers.SetState(
-                key,
-                exception is OperationCanceledException
-                    ? TransferState.Cancelled
-                    : TransferState.Failed,
-                exception
-            );
+            Transfers.SetState(key, TransferState.Cancelled, cancelException);
             throw;
         }
+        catch (Exception exception)
+        {
+            Transfers.SetState(key, TransferState.Failed, exception);
+            throw;
+        }
+
         return Transfers.GetTransfer(key);
     }
 
@@ -261,7 +263,9 @@ internal sealed class FileExchange : IAsyncDisposable, ITransferSource
         catch (SocketException exception) when (exception.IsUnreachable())
         {
             Transfers.SetState(key, TransferState.Paused);
+
             var endpoint = _resolveEndpoint(key.PeerDeviceId);
+
             _notifications.Post(NetworkError, handler => handler(endpoint, exception));
         }
         catch (OperationCanceledException) when (IsExchangeInterruption(callerToken))
@@ -297,56 +301,61 @@ internal sealed class FileExchange : IAsyncDisposable, ITransferSource
         await using var stream = await Transfers
             .OpenOutgoingFileAsync(key, ct)
             .ConfigureAwait(false);
+
         var transfer = Transfers.GetTransfer(key);
         uint index = transfer.NextIndex;
         long offset = (long)index * ProtocolConstants.ChunkSize;
         stream.Position = offset;
+
         byte[] buffer = new byte[ProtocolConstants.ChunkSize];
         while (offset < (long)transfer.FileSize)
         {
             ct.ThrowIfCancellationRequested();
+
             int length = (int)Math.Min(buffer.Length, (long)transfer.FileSize - offset);
+
             await stream.ReadExactlyAsync(buffer.AsMemory(0, length), ct).ConfigureAwait(false);
+
             byte[] payload = Payloads.EncodeChunk(
                 DeviceId,
                 key.FileId,
                 index,
                 buffer.AsSpan(0, length)
             );
+
             await SendReliableAsync(MessageType.Chunk, key.PeerDeviceId, payload, ct)
                 .ConfigureAwait(false);
+
             Transfers.ConfirmOutgoingChunk(key, index);
             index++;
             offset += length;
         }
     }
 
-    private Task SendOfferAsync(FileTransfer transfer, CancellationToken ct) =>
-        SendReliableAsync(
-            MessageType.FileOffer,
-            transfer.PeerDeviceId,
-            Payloads.EncodeFileOffer(
-                DeviceId,
-                transfer.FileId,
-                transfer.FileSize,
-                transfer.Sha256,
-                transfer.FileName
-            ),
-            ct
+    private Task SendOfferAsync(FileTransfer transfer, CancellationToken ct)
+    {
+        byte[] payload = Payloads.EncodeFileOffer(
+            DeviceId,
+            transfer.FileId,
+            transfer.FileSize,
+            transfer.Sha256,
+            transfer.FileName
         );
+
+        return SendReliableAsync(MessageType.FileOffer, transfer.PeerDeviceId, payload, ct);
+    }
 
     private Task SendAnswerAsync(
         TransferKey key,
         bool accepted,
         uint nextIndex,
         CancellationToken ct
-    ) =>
-        SendReliableAsync(
-            MessageType.FileAnswer,
-            key.PeerDeviceId,
-            Payloads.EncodeFileAnswer(DeviceId, key.FileId, accepted, nextIndex),
-            ct
-        );
+    )
+    {
+        byte[] payload = Payloads.EncodeFileAnswer(DeviceId, key.FileId, accepted, nextIndex);
+
+        return SendReliableAsync(MessageType.FileAnswer, key.PeerDeviceId, payload, ct);
+    }
 
     /// <summary>
     /// Для повторного предложения передачи key отправляет решение accepted и индекс nextIndex без запроса пользователю.
@@ -363,8 +372,10 @@ internal sealed class FileExchange : IAsyncDisposable, ITransferSource
             }
             ct = _exchangeToken;
         }
+
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _stopCts.Token);
         ct = linked.Token;
+
         try
         {
             await SendAnswerAsync(key, accepted, nextIndex, ct).ConfigureAwait(false);
@@ -404,6 +415,7 @@ internal sealed class FileExchange : IAsyncDisposable, ITransferSource
     {
         bool ok = await completion.ConfigureAwait(false);
         CancellationToken exchangeToken;
+
         lock (_stateLock)
         {
             if (_disposed || _exchangeToken.IsCancellationRequested)
@@ -458,6 +470,7 @@ internal sealed class FileExchange : IAsyncDisposable, ITransferSource
         Task<bool>? completion = null;
         TransferKey key = default;
         (bool Accepted, uint NextIndex)? answer = null;
+
         lock (_stateLock)
         {
             if (_disposed || _exchangeToken.IsCancellationRequested)
@@ -667,6 +680,7 @@ internal sealed class FileExchange : IAsyncDisposable, ITransferSource
                 bool accepted = await Transfers
                     .WaitForFileAnswerAsync(key, cts.Token, resuming: true)
                     .ConfigureAwait(false);
+
                 if (!accepted)
                 {
                     return;

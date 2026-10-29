@@ -286,18 +286,7 @@ public sealed class PeerService : IAsyncDisposable
                 continue;
             }
 
-            if (
-                packet.Type
-                is not (
-                    MessageType.Heartbeat
-                    or MessageType.FileOffer
-                    or MessageType.FileAnswer
-                    or MessageType.Chunk
-                    or MessageType.FileDone
-                    or MessageType.FileResult
-                    or MessageType.Clipboard
-                )
-            )
+            if (packet.Type is MessageType.Ack or MessageType.Discover or MessageType.PeerInfo)
             {
                 continue;
             }
@@ -379,8 +368,10 @@ public sealed class PeerService : IAsyncDisposable
         do
         {
             ct.ThrowIfCancellationRequested();
+
             long now = _timeProvider.GetTimestamp();
             UpdateAvailability(now);
+
             if (!_exchange.TryGetExchangeToken(out var exchangeToken))
             {
                 lastDiscover = null;
@@ -490,20 +481,14 @@ public sealed class PeerService : IAsyncDisposable
             {
                 var peer = entry.Peer;
                 var elapsed = _timeProvider.GetElapsedTime(entry.LastSeen, now);
-                PeerAvailability availability;
 
-                if (elapsed >= ProtocolConstants.PeerTimeout)
+                var availability = elapsed switch
                 {
-                    availability = PeerAvailability.Offline;
-                }
-                else if (elapsed >= ProtocolConstants.ConnectionTimeout)
-                {
-                    availability = PeerAvailability.Unreachable;
-                }
-                else
-                {
-                    availability = PeerAvailability.Available;
-                }
+                    _ when elapsed >= ProtocolConstants.PeerTimeout => PeerAvailability.Offline,
+                    _ when elapsed >= ProtocolConstants.ConnectionTimeout =>
+                        PeerAvailability.Unreachable,
+                    _ => PeerAvailability.Available,
+                };
 
                 if (availability == peer.Availability)
                 {
