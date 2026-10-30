@@ -17,7 +17,9 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new MainWindow { DataContext = new MainViewModel() };
+            string profile = desktop.Args is { Length: > 0 } ? desktop.Args[0] : "default";
+
+            desktop.MainWindow = new MainWindow { DataContext = new MainViewModel(profile) };
         }
 
         base.OnFrameworkInitializationCompleted();

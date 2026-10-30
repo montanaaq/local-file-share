@@ -1,4 +1,3 @@
-<?xml version="1.0" encoding="UTF-8" ?>
 <Window
     x:Class="Client.Views.MainWindow"
     xmlns="https://github.com/avaloniaui"
@@ -7,17 +6,191 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:viewmodels="using:Client.ViewModels"
     Title="Local File Share"
-    d:DesignHeight="450"
-    d:DesignWidth="800"
+    Width="720"
+    Height="800"
+    MinWidth="360"
+    MinHeight="500"
+    d:DesignHeight="800"
+    d:DesignWidth="720"
     x:DataType="viewmodels:MainViewModel"
+    Background="#F4F6FB"
     Icon="/Assets/avalonia-logo.ico"
+    RequestedThemeVariant="Light"
     mc:Ignorable="d">
     <Design.DataContext>
         <viewmodels:MainViewModel />
     </Design.DataContext>
-    <TextBlock
-        HorizontalAlignment="Center"
-        VerticalAlignment="Center"
-        FontSize="24"
-        Text="{Binding Greeting}" />
+    <Grid RowDefinitions="*,Auto">
+        <ScrollViewer Grid.Row="0">
+            <Grid MaxWidth="540" Margin="24,32">
+                <StackPanel IsVisible="{Binding IsHome}" Spacing="20">
+                    <StackPanel Spacing="5">
+                        <TextBlock
+                            FontSize="26"
+                            FontWeight="Bold"
+                            Foreground="#18233C"
+                            Text="Local File Share" />
+                        <TextBlock
+                            Foreground="#68758C"
+                            Text="Share files with devices on your network"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel
+                        Margin="0,20"
+                        HorizontalAlignment="Center"
+                        Spacing="12">
+                        <Border
+                            Width="160"
+                            Height="160"
+                            Background="#536DFE"
+                            CornerRadius="80">
+                            <StackPanel
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Spacing="6">
+                                <TextBlock
+                                    HorizontalAlignment="Center"
+                                    FontSize="38"
+                                    Foreground="White"
+                                    Text="⌕" />
+                                <TextBlock
+                                    HorizontalAlignment="Center"
+                                    FontSize="18"
+                                    FontWeight="SemiBold"
+                                    Foreground="White"
+                                    Text="Search" />
+                            </StackPanel>
+                        </Border>
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            Foreground="#68758C"
+                            Text="Search is not connected yet" />
+                    </StackPanel>
+                    <Border
+                        Padding="20"
+                        Background="White"
+                        CornerRadius="16">
+                        <StackPanel Spacing="12">
+                            <TextBlock
+                                FontSize="19"
+                                FontWeight="SemiBold"
+                                Foreground="#18233C"
+                                Text="Nearby devices" />
+                            <TextBlock
+                                Foreground="#68758C"
+                                Text="Devices will appear here after search."
+                                TextWrapping="Wrap" />
+                            <ListBox ItemsSource="{Binding Devices}" SelectedItem="{Binding SelectedDevice}" />
+                        </StackPanel>
+                    </Border>
+                    <Border
+                        Padding="20"
+                        Background="White"
+                        CornerRadius="16"
+                        IsVisible="{Binding HasSelectedDevice}">
+                        <StackPanel Spacing="12">
+                            <TextBlock
+                                FontSize="19"
+                                FontWeight="SemiBold"
+                                Foreground="#18233C"
+                                Text="Send a file" />
+                            <TextBlock Foreground="#68758C" Text="{Binding SelectedDevice}" />
+                            <Border
+                                Padding="24"
+                                BorderBrush="#AAB6D0"
+                                BorderThickness="2"
+                                CornerRadius="12">
+                                <StackPanel Spacing="8">
+                                    <TextBlock
+                                        HorizontalAlignment="Center"
+                                        FontSize="28"
+                                        Foreground="#536DFE"
+                                        Text="↑" />
+                                    <TextBlock HorizontalAlignment="Center" Text="Drop files here" />
+                                    <TextBlock
+                                        HorizontalAlignment="Center"
+                                        Foreground="#68758C"
+                                        Text="File selection is not connected yet"
+                                        TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+                            <Button
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                Content="Send"
+                                IsEnabled="False" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+                <StackPanel IsVisible="{Binding IsSettings}" Spacing="20">
+                    <StackPanel Spacing="5">
+                        <TextBlock
+                            FontSize="26"
+                            FontWeight="Bold"
+                            Foreground="#18233C"
+                            Text="Settings" />
+                        <TextBlock Foreground="#68758C" Text="Configure your device and connection" />
+                    </StackPanel>
+                    <Border
+                        Padding="20"
+                        Background="White"
+                        CornerRadius="16">
+                        <StackPanel Spacing="12">
+                            <TextBlock FontWeight="SemiBold" Text="Device name" />
+                            <TextBox PlaceholderText="Device name" />
+                            <TextBlock FontWeight="SemiBold" Text="Local port" />
+                            <NumericUpDown
+                                Maximum="65535"
+                                Minimum="1"
+                                Value="{Binding ClientSettings.LocalPort, Mode=TwoWay}" />
+                            <CheckBox Content="Exchange enabled" IsChecked="True" />
+                            <TextBlock FontWeight="SemiBold" Text="Packet loss (%)" />
+                            <TextBox Text="0" />
+                            <CheckBox Content="Connection interruption" IsEnabled="False" />
+                        </StackPanel>
+                    </Border>
+                    <Button Command="{Binding SaveSettingsCommand}" Content="Save settings" />
+                    <TextBlock Text="{Binding SettingsMessage}" TextWrapping="Wrap" />
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+        <Border
+            Grid.Row="1"
+            Padding="12"
+            Background="White"
+            BorderBrush="#E5EAF3"
+            BorderThickness="0,1,0,0">
+            <StackPanel
+                HorizontalAlignment="Center"
+                Orientation="Horizontal"
+                Spacing="24">
+                <Button
+                    Padding="24,8"
+                    Background="Transparent"
+                    Command="{Binding ShowHomeCommand}">
+                    <StackPanel Spacing="3">
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            FontSize="22"
+                            Foreground="#18233C"
+                            Text="⌂" />
+                        <TextBlock Foreground="#18233C" Text="Home" />
+                    </StackPanel>
+                </Button>
+                <Button
+                    Padding="24,8"
+                    Background="Transparent"
+                    Command="{Binding ShowSettingsCommand}">
+                    <StackPanel Spacing="3">
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            FontSize="22"
+                            Foreground="#18233C"
+                            Text="⚙" />
+                        <TextBlock Foreground="#18233C" Text="Settings" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+        </Border>
+    </Grid>
 </Window>
