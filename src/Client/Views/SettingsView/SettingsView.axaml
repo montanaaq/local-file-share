@@ -1,0 +1,57 @@
+<UserControl
+    x:Class="Client.Views.SettingsView"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:Client.ViewModels"
+    x:DataType="vm:MainViewModel">
+    <StackPanel Spacing="18">
+        <TextBlock Classes="title" Text="Настройки" />
+        <TextBlock Classes="label" Text="Устройство" Margin="0,8,0,0" />
+        <Border Classes="card">
+            <StackPanel Spacing="8">
+                <TextBlock Classes="muted" Text="Имя" />
+                <TextBox Text="{Binding ClientSettings.DeviceName, Mode=TwoWay}" PlaceholderText="Имя устройства" />
+            </StackPanel>
+        </Border>
+        <Border Classes="card">
+            <StackPanel Spacing="8">
+                <TextBlock Classes="muted" Text="UDP-порт" />
+                <NumericUpDown Minimum="1" Maximum="65535" Value="{Binding ClientSettings.LocalPort, Mode=TwoWay}" />
+            </StackPanel>
+        </Border>
+        <Button Classes="primary" Content="Сохранить настройки" Command="{Binding SaveSettingsCommand}" HorizontalAlignment="Stretch" />
+        <TextBlock Classes="muted" Text="{Binding SettingsMessage}" />
+        <Border Classes="card">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Spacing="5">
+                    <TextBlock Classes="label" Text="Обмен" />
+                    <TextBlock Classes="muted" Text="Сетевая сессия не подключена" />
+                </StackPanel>
+                <ToggleSwitch Grid.Column="1" OffContent="" OnContent="" IsEnabled="False" />
+            </Grid>
+        </Border>
+        <TextBlock Classes="label" Text="Тестирование сети" Margin="0,8,0,0" />
+        <Border Classes="card">
+            <StackPanel Spacing="10">
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="label" Text="Потеря пакетов" />
+                    <TextBlock Grid.Column="1" Foreground="#3869ED" Text="0%" />
+                </Grid>
+                <Slider Minimum="0" Maximum="100" Value="0" IsEnabled="False" />
+                <Grid ColumnDefinitions="*,*">
+                    <TextBlock Classes="muted" FontSize="10" Text="0%" />
+                    <TextBlock Grid.Column="1" Classes="muted" FontSize="10" Text="100%" HorizontalAlignment="Right" />
+                </Grid>
+            </StackPanel>
+        </Border>
+        <Border Classes="card">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Spacing="5">
+                    <TextBlock Classes="label" Text="Обрыв связи" />
+                    <TextBlock Classes="muted" Text="Устанавливает потерю пакетов на 100%" />
+                </StackPanel>
+                <ToggleSwitch Grid.Column="1" OffContent="" OnContent="" IsEnabled="False" />
+            </Grid>
+        </Border>
+    </StackPanel>
+</UserControl>

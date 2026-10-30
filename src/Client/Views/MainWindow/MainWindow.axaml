@@ -1,0 +1,289 @@
+<Window
+    x:Class="Client.Views.MainWindow"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:protocol="using:Protocol"
+    xmlns:views="using:Client.Views"
+    xmlns:vm="using:Client.ViewModels"
+    Title="LocalFileShare"
+    Width="500"
+    MinWidth="440"
+    MinHeight="400"
+    MaxHeight="820"
+    x:DataType="vm:MainViewModel"
+    Background="White"
+    Icon="/Assets/avalonia-logo.ico"
+    RequestedThemeVariant="Light"
+    SizeToContent="Height">
+    <Design.DataContext>
+        <vm:MainViewModel />
+    </Design.DataContext>
+    <Border Padding="24" Background="White">
+        <Grid RowDefinitions="Auto,*,Auto">
+            <Border
+                Padding="0,0,0,18"
+                BorderBrush="#E2E9F2"
+                BorderThickness="0,0,0,1">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <Border
+                        Width="44"
+                        Height="44"
+                        Margin="0,0,10,0"
+                        Background="#E9EFFF"
+                        CornerRadius="22">
+                        <Path
+                            Width="24"
+                            Height="24"
+                            Data="M 10 13 A 5 5 0 0 0 17 13 L 20 10 A 5 5 0 0 0 13 3 L 11 5 M 14 11 A 5 5 0 0 0 7 11 L 4 14 A 5 5 0 0 0 11 21 L 13 19"
+                            Stretch="Uniform"
+                            Stroke="#3869ED"
+                            StrokeJoin="Round"
+                            StrokeLineCap="Round"
+                            StrokeThickness="2" />
+                    </Border>
+                    <TextBlock
+                        Grid.Column="1"
+                        VerticalAlignment="Center"
+                        FontSize="20"
+                        FontWeight="Bold"
+                        Text="LocalFileShare" />
+                    <Border
+                        Grid.Column="2"
+                        Padding="10,5"
+                        VerticalAlignment="Center"
+                        Background="#EDF3F9"
+                        CornerRadius="14">
+                        <TextBlock
+                            FontSize="11"
+                            Foreground="#60748C"
+                            Text="Не в сети" />
+                    </Border>
+                </Grid>
+            </Border>
+            <ScrollViewer
+                Grid.Row="1"
+                Margin="0,18,0,20"
+                HorizontalScrollBarVisibility="Disabled">
+                <Grid>
+                    <StackPanel IsVisible="{Binding IsHome}" Spacing="16">
+                        <TextBlock Classes="title" Text="Отправка" />
+                        <TextBlock Classes="muted" Text="Получатель" />
+                        <Border Classes="card">
+                            <StackPanel Spacing="8">
+                                <TextBlock
+                                    Classes="label"
+                                    IsVisible="{Binding !HasSelectedDevice}"
+                                    Text="Устройства не найдены" />
+                                <TextBlock
+                                    Classes="muted"
+                                    IsVisible="{Binding !HasSelectedDevice}"
+                                    Text="Поиск устройств пока не подключён." />
+                                <ListBox
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    ItemsSource="{Binding Devices}"
+                                    SelectedItem="{Binding SelectedDevice}">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate x:DataType="protocol:Peer">
+                                            <StackPanel Spacing="4">
+                                                <TextBlock Classes="label" Text="{Binding Name}" />
+                                                <TextBlock Classes="muted" Text="{Binding Endpoint}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </StackPanel>
+                        </Border>
+                        <Border
+                            Padding="22"
+                            Background="#FAFBFF"
+                            BorderBrush="#B9C9EE"
+                            BorderThickness="1.5"
+                            CornerRadius="14">
+                            <StackPanel Spacing="10">
+                                <Path
+                                    Width="24"
+                                    Height="24"
+                                    Data="M12 3 v12 M17 8 l-5 -5 -5 5 M21 15 v4 a2 2 0 0 1 -2 2 H5 a2 2 0 0 1 -2 -2 v-4"
+                                    Stretch="Uniform"
+                                    Stroke="#7996C5"
+                                    StrokeJoin="Round"
+                                    StrokeLineCap="Round"
+                                    StrokeThickness="2" />
+                                <TextBlock
+                                    HorizontalAlignment="Center"
+                                    FontWeight="SemiBold"
+                                    Text="Перетащите файлы сюда" />
+                                <TextBlock
+                                    HorizontalAlignment="Center"
+                                    Classes="muted"
+                                    Text="Выбор файлов будет доступен после подключения"
+                                    TextAlignment="Center" />
+                            </StackPanel>
+                        </Border>
+                        <Button
+                            HorizontalAlignment="Stretch"
+                            Classes="primary"
+                            Content="Выбрать файлы"
+                            IsEnabled="False" />
+                        <TextBlock Classes="label" Text="Текст из буфера" />
+                        <Border
+                            Padding="14"
+                            Background="#F7F9FC"
+                            BorderBrush="#E2E9F2"
+                            BorderThickness="1"
+                            CornerRadius="12">
+                            <StackPanel Spacing="12">
+                                <TextBox
+                                    MinHeight="65"
+                                    AcceptsReturn="True"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    IsEnabled="False"
+                                    PlaceholderText="Вставьте или напишите текст…"
+                                    TextWrapping="Wrap" />
+                                <TextBlock
+                                    HorizontalAlignment="Right"
+                                    Classes="muted"
+                                    FontSize="10"
+                                    Text="До 1000 байт в UTF-8" />
+                            </StackPanel>
+                        </Border>
+                        <Grid ColumnDefinitions="*,12,*">
+                            <Button
+                                HorizontalAlignment="Stretch"
+                                Classes="secondary"
+                                Content="Вставить текст"
+                                IsEnabled="False" />
+                            <Button
+                                Grid.Column="2"
+                                HorizontalAlignment="Stretch"
+                                Classes="primary"
+                                Content="Отправить текст"
+                                IsEnabled="False" />
+                        </Grid>
+                        <TextBlock Classes="muted" Text="Каждый файл отправляется отдельно и требует подтверждения получателя." />
+                        <TextBlock
+                            Margin="0,8,0,0"
+                            Classes="label"
+                            Text="Входящие файлы" />
+                        <Border Classes="card">
+                            <TextBlock Classes="muted" Text="Здесь появятся предложения принять файлы." />
+                        </Border>
+                        <TextBlock Classes="label" Text="Полученный текст" />
+                        <Border Classes="card">
+                            <TextBlock Classes="muted" Text="Здесь появится полученный текст с кнопкой копирования." />
+                        </Border>
+                    </StackPanel>
+                    <StackPanel IsVisible="{Binding IsTransfers}" Spacing="20">
+                        <TextBlock Classes="title" Text="Передачи" />
+                        <Border Padding="24" Classes="card">
+                            <StackPanel Spacing="12">
+                                <Path
+                                    Width="32"
+                                    Height="32"
+                                    Data="M16 3 l4 4 -4 4 M20 7 H4 M8 21 l-4 -4 4 -4 M4 17 h16"
+                                    Stretch="Uniform"
+                                    Stroke="#8EA4BE"
+                                    StrokeJoin="Round"
+                                    StrokeLineCap="Round"
+                                    StrokeThickness="1.5" />
+                                <TextBlock
+                                    HorizontalAlignment="Center"
+                                    Classes="label"
+                                    Text="Передач пока нет" />
+                                <TextBlock
+                                    Classes="muted"
+                                    Text="Здесь появятся прогресс, повторы и передачи на паузе."
+                                    TextAlignment="Center" />
+                            </StackPanel>
+                        </Border>
+                        <Button
+                            HorizontalAlignment="Stretch"
+                            Classes="secondary"
+                            Content="Подробности"
+                            IsEnabled="False" />
+                        <TextBlock Classes="muted" Text="Каждый файл отслеживается отдельно. Прогресс передачи на паузе сохраняется до 120 секунд." />
+                    </StackPanel>
+                    <views:SettingsView IsVisible="{Binding IsSettings}" />
+                </Grid>
+            </ScrollViewer>
+            <Border
+                Grid.Row="2"
+                Padding="0,10,0,0"
+                BorderBrush="#E2E9F2"
+                BorderThickness="0,1,0,0">
+                <Grid ColumnDefinitions="*,8,*,8,*">
+                    <Button
+                        HorizontalAlignment="Stretch"
+                        Classes="nav"
+                        Classes.active="{Binding IsHome}"
+                        Command="{Binding ShowHomeCommand}">
+                        <StackPanel Spacing="5">
+                            <Path
+                                Width="20"
+                                Height="20"
+                                Data="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8 M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
+                                Stretch="Uniform"
+                                Stroke="{Binding $parent[Button].Foreground}"
+                                StrokeJoin="Round"
+                                StrokeLineCap="Round"
+                                StrokeThickness="1.7" />
+                            <TextBlock
+                                HorizontalAlignment="Center"
+                                FontSize="11"
+                                Foreground="{Binding $parent[Button].Foreground}"
+                                Text="Главная" />
+                        </StackPanel>
+                    </Button>
+                    <Button
+                        Grid.Column="2"
+                        HorizontalAlignment="Stretch"
+                        Classes="nav"
+                        Classes.active="{Binding IsTransfers}"
+                        Command="{Binding ShowTransfersCommand}">
+                        <StackPanel Spacing="5">
+                            <Path
+                                Width="20"
+                                Height="20"
+                                Data="M16 3 l4 4 -4 4 M20 7 H4 M8 21 l-4 -4 4 -4 M4 17 h16"
+                                Stretch="Uniform"
+                                Stroke="{Binding $parent[Button].Foreground}"
+                                StrokeJoin="Round"
+                                StrokeLineCap="Round"
+                                StrokeThickness="1.7" />
+                            <TextBlock
+                                HorizontalAlignment="Center"
+                                FontSize="11"
+                                Foreground="{Binding $parent[Button].Foreground}"
+                                Text="Передачи" />
+                        </StackPanel>
+                    </Button>
+                    <Button
+                        Grid.Column="4"
+                        HorizontalAlignment="Stretch"
+                        Classes="nav"
+                        Classes.active="{Binding IsSettings}"
+                        Command="{Binding ShowSettingsCommand}">
+                        <StackPanel Spacing="5">
+                            <Path
+                                Width="20"
+                                Height="20"
+                                Data="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915 M 15.0 12.0 A 3.0 3.0 0 1 1 9.0 12.0 A 3.0 3.0 0 1 1 15.0 12.0"
+                                Stretch="Uniform"
+                                Stroke="{Binding $parent[Button].Foreground}"
+                                StrokeJoin="Round"
+                                StrokeLineCap="Round"
+                                StrokeThickness="1.7" />
+                            <TextBlock
+                                HorizontalAlignment="Center"
+                                FontSize="11"
+                                Foreground="{Binding $parent[Button].Foreground}"
+                                Text="Настройки" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</Window>

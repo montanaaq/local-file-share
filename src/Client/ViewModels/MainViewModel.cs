@@ -38,19 +38,25 @@ public partial class MainViewModel : ViewModelBase
         catch (Exception exception)
             when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
-            SettingsMessage = $"Could not load settings: {exception.Message}";
+            SettingsMessage = $"Не удалось загрузить настройки: {exception.Message}";
         }
     }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsHome))]
-    public partial bool IsSettings { get; set; }
+    [NotifyPropertyChangedFor(nameof(IsSettings))]
+    [NotifyPropertyChangedFor(nameof(IsTransfers))]
+    public partial int SelectedPage { get; set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSelectedDevice))]
     public partial Peer? SelectedDevice { get; set; }
 
-    public bool IsHome => !IsSettings;
+    public bool IsHome => SelectedPage == 0;
+
+    public bool IsTransfers => SelectedPage == 1;
+
+    public bool IsSettings => SelectedPage == 2;
 
     public bool HasSelectedDevice => SelectedDevice is not null;
 
@@ -76,31 +82,34 @@ public partial class MainViewModel : ViewModelBase
             || Encoding.UTF8.GetByteCount(ClientSettings.DeviceName) > 255
         )
         {
-            SettingsMessage = "Device name must be nonempty and at most 255 UTF-8 bytes.";
+            SettingsMessage = "Имя устройства не должно быть пустым и должно занимать не более 255 байт в UTF-8.";
             return;
         }
 
         if (ClientSettings.LocalPort is < 1 or > 65535)
         {
-            SettingsMessage = "Port must be between 1 and 65535.";
+            SettingsMessage = "Порт должен быть от 1 до 65535.";
             return;
         }
 
         try
         {
             _settingsStorage.Save(ClientSettings);
-            SettingsMessage = "Settings saved.";
+            SettingsMessage = "Настройки сохранены.";
         }
         catch (Exception exception)
             when (exception is IOException or UnauthorizedAccessException)
         {
-            SettingsMessage = $"Could not save settings: {exception.Message}";
+            SettingsMessage = $"Не удалось сохранить настройки: {exception.Message}";
         }
     }
 
     [RelayCommand]
-    private void ShowHome() => IsSettings = false;
+    private void ShowHome() => SelectedPage = 0;
 
     [RelayCommand]
-    private void ShowSettings() => IsSettings = true;
+    private void ShowTransfers() => SelectedPage = 1;
+
+    [RelayCommand]
+    private void ShowSettings() => SelectedPage = 2;
 }
