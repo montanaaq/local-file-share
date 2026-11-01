@@ -19,7 +19,12 @@ public partial class App : Application
         {
             string profile = desktop.Args is { Length: > 0 } ? desktop.Args[0] : "default";
 
-            desktop.MainWindow = new MainWindow { DataContext = new MainViewModel(profile) };
+            var window = new MainWindow();
+            window.DataContext = new MainViewModel(profile)
+            {
+                PickReceiveDirectoryAsync = window.PickReceiveDirectoryAsync,
+            };
+            desktop.MainWindow = window;
         }
 
         base.OnFrameworkInitializationCompleted();

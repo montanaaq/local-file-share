@@ -6,41 +6,69 @@
     x:DataType="vm:MainViewModel">
     <StackPanel Spacing="18">
         <TextBlock Classes="title" Text="Настройки" />
-        <TextBlock Classes="label" Text="Устройство" Margin="0,8,0,0" />
+        <TextBlock
+            Margin="0,8,0,0"
+            Classes="label"
+            Text="Устройство" />
         <Border Classes="card">
             <StackPanel Spacing="8">
                 <TextBlock Classes="muted" Text="Имя" />
-                <TextBox Text="{Binding ClientSettings.DeviceName, Mode=TwoWay}" PlaceholderText="Имя устройства" />
+                <TextBox
+                    IsEnabled="{Binding !StartSearchCommand.IsRunning}"
+                    PlaceholderText="Имя устройства"
+                    Text="{Binding ClientSettings.DeviceName, Mode=TwoWay}" />
             </StackPanel>
         </Border>
         <Border Classes="card">
             <StackPanel Spacing="8">
                 <TextBlock Classes="muted" Text="UDP-порт" />
-                <NumericUpDown Minimum="1" Maximum="65535" Value="{Binding ClientSettings.LocalPort, Mode=TwoWay}" />
+                <NumericUpDown
+                    IsEnabled="{Binding !StartSearchCommand.IsRunning}"
+                    Maximum="65535"
+                    Minimum="1"
+                    Value="{Binding ClientSettings.LocalPort, Mode=TwoWay}" />
             </StackPanel>
         </Border>
-        <Button Classes="primary" Content="Сохранить настройки" Command="{Binding SaveSettingsCommand}" HorizontalAlignment="Stretch" />
+        <Button
+            HorizontalAlignment="Stretch"
+            Classes="primary"
+            Command="{Binding SaveSettingsCommand}"
+            Content="Сохранить настройки" />
         <TextBlock Classes="muted" Text="{Binding SettingsMessage}" />
         <Border Classes="card">
             <Grid ColumnDefinitions="*,Auto">
                 <StackPanel Spacing="5">
                     <TextBlock Classes="label" Text="Обмен" />
-                    <TextBlock Classes="muted" Text="Сетевая сессия не подключена" />
+                    <TextBlock Classes="muted" Text="{Binding NetworkMessage}" />
                 </StackPanel>
-                <ToggleSwitch Grid.Column="1" OffContent="" OnContent="" IsEnabled="False" />
             </Grid>
         </Border>
-        <TextBlock Classes="label" Text="Тестирование сети" Margin="0,8,0,0" />
+        <TextBlock Classes="muted" Text="Для изменения имени и порта завершите текущую сессию." />
+        <TextBlock
+            Margin="0,8,0,0"
+            Classes="label"
+            Text="Тестирование сети" />
         <Border Classes="card">
             <StackPanel Spacing="10">
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Classes="label" Text="Потеря пакетов" />
-                    <TextBlock Grid.Column="1" Foreground="#3869ED" Text="0%" />
+                    <TextBlock
+                        Grid.Column="1"
+                        Foreground="#3869ED"
+                        Text="0%" />
                 </Grid>
-                <Slider Minimum="0" Maximum="100" Value="0" IsEnabled="False" />
+                <Slider
+                    IsEnabled="False"
+                    Maximum="100"
+                    Minimum="0"
+                    Value="0" />
                 <Grid ColumnDefinitions="*,*">
-                    <TextBlock Classes="muted" FontSize="10" Text="0%" />
-                    <TextBlock Grid.Column="1" Classes="muted" FontSize="10" Text="100%" HorizontalAlignment="Right" />
+                    <TextBlock Classes="muted" Text="0%" />
+                    <TextBlock
+                        Grid.Column="1"
+                        HorizontalAlignment="Right"
+                        Classes="muted"
+                        Text="100%" />
                 </Grid>
             </StackPanel>
         </Border>
@@ -50,7 +78,11 @@
                     <TextBlock Classes="label" Text="Обрыв связи" />
                     <TextBlock Classes="muted" Text="Устанавливает потерю пакетов на 100%" />
                 </StackPanel>
-                <ToggleSwitch Grid.Column="1" OffContent="" OnContent="" IsEnabled="False" />
+                <ToggleSwitch
+                    Grid.Column="1"
+                    IsEnabled="False"
+                    OffContent=""
+                    OnContent="" />
             </Grid>
         </Border>
     </StackPanel>

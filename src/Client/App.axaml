@@ -4,33 +4,55 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     RequestedThemeVariant="Default">
 
+    <Application.Resources>
+        <CornerRadius x:Key="ControlCornerRadius">14</CornerRadius>
+    </Application.Resources>
+
     <Application.Styles>
         <FluentTheme />
+        <Style Selector="Window">
+            <Setter Property="FontSize" Value="16" />
+        </Style>
+        <Style Selector="Button, TextBox, NumericUpDown">
+            <Setter Property="FontSize" Value="16" />
+        </Style>
         <Style Selector="TextBlock">
             <Setter Property="Foreground" Value="#213044" />
         </Style>
         <Style Selector="TextBlock.title">
-            <Setter Property="FontSize" Value="23" />
+            <Setter Property="FontSize" Value="28" />
             <Setter Property="FontWeight" Value="Bold" />
         </Style>
         <Style Selector="TextBlock.muted">
             <Setter Property="Foreground" Value="#7C8FA8" />
-            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontSize" Value="14" />
             <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.caption">
+            <Setter Property="FontSize" Value="14" />
+        </Style>
+        <Style Selector="TextBlock.brand">
+            <Setter Property="FontSize" Value="24" />
         </Style>
         <Style Selector="TextBlock.label">
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
         <Style Selector="Border.card">
             <Setter Property="Background" Value="#F5F7FA" />
-            <Setter Property="CornerRadius" Value="14" />
+            <Setter Property="CornerRadius" Value="{DynamicResource ControlCornerRadius}" />
             <Setter Property="Padding" Value="18" />
         </Style>
         <Style Selector="Button">
-            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="CornerRadius" Value="{DynamicResource ControlCornerRadius}" />
             <Setter Property="Padding" Value="16,12" />
             <Setter Property="HorizontalContentAlignment" Value="Center" />
             <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="TextBox, NumericUpDown, ListBoxItem">
+            <Setter Property="CornerRadius" Value="{DynamicResource ControlCornerRadius}" />
+        </Style>
+        <Style Selector="Button:pressed, RepeatButton:pressed">
+            <Setter Property="RenderTransform" Value="none" />
         </Style>
         <Style Selector="Button:enabled">
             <Setter Property="Cursor" Value="Hand" />

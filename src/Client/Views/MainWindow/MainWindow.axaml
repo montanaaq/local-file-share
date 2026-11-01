@@ -6,19 +6,41 @@
     xmlns:views="using:Client.Views"
     xmlns:vm="using:Client.ViewModels"
     Title="LocalFileShare"
-    Width="500"
-    MinWidth="440"
-    MinHeight="400"
-    MaxHeight="820"
+    Width="560"
+    MinWidth="480"
+    Height="820"
+    MinHeight="560"
     x:DataType="vm:MainViewModel"
     Background="White"
     Icon="/Assets/avalonia-logo.ico"
-    RequestedThemeVariant="Light"
-    SizeToContent="Height">
+    RequestedThemeVariant="Light">
+    <Window.Styles>
+        <ContainerQuery Name="client" Query="min-width:752">
+            <Style Selector="TextBlock">
+                <Setter Property="FontSize" Value="18" />
+            </Style>
+            <Style Selector="Button, TextBox, NumericUpDown">
+                <Setter Property="FontSize" Value="18" />
+            </Style>
+            <Style Selector="TextBlock.muted, TextBlock.caption">
+                <Setter Property="FontSize" Value="16" />
+            </Style>
+            <Style Selector="TextBlock.title">
+                <Setter Property="FontSize" Value="32" />
+            </Style>
+            <Style Selector="TextBlock.brand">
+                <Setter Property="FontSize" Value="28" />
+            </Style>
+        </ContainerQuery>
+    </Window.Styles>
     <Design.DataContext>
         <vm:MainViewModel />
     </Design.DataContext>
-    <Border Padding="24" Background="White">
+    <Border
+        Padding="24"
+        Background="White"
+        Container.Name="client"
+        Container.Sizing="Width">
         <Grid RowDefinitions="Auto,*,Auto">
             <Border
                 Padding="0,0,0,18"
@@ -44,7 +66,7 @@
                     <TextBlock
                         Grid.Column="1"
                         VerticalAlignment="Center"
-                        FontSize="20"
+                        Classes="brand"
                         FontWeight="Bold"
                         Text="LocalFileShare" />
                     <Border
@@ -52,11 +74,19 @@
                         Padding="10,5"
                         VerticalAlignment="Center"
                         Background="#EDF3F9"
-                        CornerRadius="14">
-                        <TextBlock
-                            FontSize="11"
-                            Foreground="#60748C"
-                            Text="Не в сети" />
+                        CornerRadius="{DynamicResource ControlCornerRadius}">
+                        <Grid>
+                            <TextBlock
+                                Classes="caption"
+                                Foreground="#60748C"
+                                IsVisible="{Binding !StartSearchCommand.IsRunning}"
+                                Text="Не в сети" />
+                            <TextBlock
+                                Classes="caption"
+                                Foreground="#22865E"
+                                IsVisible="{Binding StartSearchCommand.IsRunning}"
+                                Text="В сети" />
+                        </Grid>
                     </Border>
                 </Grid>
             </Border>
@@ -67,17 +97,34 @@
                 <Grid>
                     <StackPanel IsVisible="{Binding IsHome}" Spacing="16">
                         <TextBlock Classes="title" Text="Отправка" />
+                        <Button
+                            HorizontalAlignment="Stretch"
+                            Classes="primary"
+                            Command="{Binding StartSearchCommand}"
+                            Content="Запустить обмен"
+                            IsVisible="{Binding !StartSearchCommand.IsRunning}" />
+                        <Button
+                            HorizontalAlignment="Stretch"
+                            Classes="secondary"
+                            Command="{Binding StartSearchCancelCommand}"
+                            Content="Завершить сессию"
+                            IsVisible="{Binding StartSearchCommand.IsRunning}" />
+
+                        <TextBlock
+                            Classes="muted"
+                            Text="{Binding NetworkMessage}"
+                            TextWrapping="Wrap" />
                         <TextBlock Classes="muted" Text="Получатель" />
-                        <Border Classes="card">
+                        <Border Classes="card" IsVisible="{Binding !HasSelectedDevice}">
                             <StackPanel Spacing="8">
                                 <TextBlock
                                     Classes="label"
-                                    IsVisible="{Binding !HasSelectedDevice}"
+                                    IsVisible="{Binding !HasDevices}"
                                     Text="Устройства не найдены" />
                                 <TextBlock
                                     Classes="muted"
-                                    IsVisible="{Binding !HasSelectedDevice}"
-                                    Text="Поиск устройств пока не подключён." />
+                                    IsVisible="{Binding !HasDevices}"
+                                    Text="Запустите обмен на другом устройстве в той же локальной сети." />
                                 <ListBox
                                     Background="Transparent"
                                     BorderThickness="0"
@@ -88,123 +135,154 @@
                                             <StackPanel Spacing="4">
                                                 <TextBlock Classes="label" Text="{Binding Name}" />
                                                 <TextBlock Classes="muted" Text="{Binding Endpoint}" />
+                                                <TextBlock Classes="muted" Text="{Binding Availability}" />
                                             </StackPanel>
                                         </DataTemplate>
                                     </ListBox.ItemTemplate>
                                 </ListBox>
                             </StackPanel>
                         </Border>
-                        <Border
-                            Padding="22"
-                            Background="#FAFBFF"
-                            BorderBrush="#B9C9EE"
-                            BorderThickness="1.5"
-                            CornerRadius="14">
-                            <StackPanel Spacing="10">
-                                <Path
-                                    Width="24"
-                                    Height="24"
-                                    Data="M12 3 v12 M17 8 l-5 -5 -5 5 M21 15 v4 a2 2 0 0 1 -2 2 H5 a2 2 0 0 1 -2 -2 v-4"
-                                    Stretch="Uniform"
-                                    Stroke="#7996C5"
-                                    StrokeJoin="Round"
-                                    StrokeLineCap="Round"
-                                    StrokeThickness="2" />
-                                <TextBlock
-                                    HorizontalAlignment="Center"
-                                    FontWeight="SemiBold"
-                                    Text="Перетащите файлы сюда" />
-                                <TextBlock
-                                    HorizontalAlignment="Center"
-                                    Classes="muted"
-                                    Text="Выбор файлов будет доступен после подключения"
-                                    TextAlignment="Center" />
-                            </StackPanel>
-                        </Border>
-                        <Button
-                            HorizontalAlignment="Stretch"
-                            Classes="primary"
-                            Content="Выбрать файлы"
-                            IsEnabled="False" />
-                        <TextBlock Classes="label" Text="Текст из буфера" />
-                        <Border
-                            Padding="14"
-                            Background="#F7F9FC"
-                            BorderBrush="#E2E9F2"
-                            BorderThickness="1"
-                            CornerRadius="12">
-                            <StackPanel Spacing="12">
-                                <TextBox
-                                    MinHeight="65"
-                                    AcceptsReturn="True"
-                                    Background="Transparent"
-                                    BorderThickness="0"
-                                    IsEnabled="False"
-                                    PlaceholderText="Вставьте или напишите текст…"
-                                    TextWrapping="Wrap" />
-                                <TextBlock
-                                    HorizontalAlignment="Right"
-                                    Classes="muted"
-                                    FontSize="10"
-                                    Text="До 1000 байт в UTF-8" />
-                            </StackPanel>
-                        </Border>
-                        <Grid ColumnDefinitions="*,12,*">
+                        <TextBlock Classes="muted" IsVisible="{Binding !HasSelectedDevice}"
+                                   Text="Выберите устройство в списке, чтобы открыть область отправки." />
+                        <StackPanel IsVisible="{Binding HasSelectedDevice}" Spacing="16">
+                            <Border Classes="card">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Classes="label" Text="{Binding SelectedDevice.Name}" TextWrapping="Wrap" />
+                                    <TextBlock Classes="muted" Text="{Binding SelectedDevice.Endpoint}" />
+                                    <Button Classes="secondary" Content="Сменить получателя"
+                                            Command="{Binding ChangeRecipientCommand}" />
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Classes="muted" Text="Получатель отдельно подтвердит или отклонит каждый файл." />
+                            <Border
+                                Padding="22"
+                                Background="#FAFBFF"
+                                BorderBrush="#B9C9EE"
+                                BorderThickness="1.5"
+                                CornerRadius="{DynamicResource ControlCornerRadius}">
+                                <StackPanel Spacing="10">
+                                    <Path
+                                        Width="24"
+                                        Height="24"
+                                        Data="M12 3 v12 M17 8 l-5 -5 -5 5 M21 15 v4 a2 2 0 0 1 -2 2 H5 a2 2 0 0 1 -2 -2 v-4"
+                                        Stretch="Uniform"
+                                        Stroke="#7996C5"
+                                        StrokeJoin="Round"
+                                        StrokeLineCap="Round"
+                                        StrokeThickness="2" />
+                                    <TextBlock
+                                        HorizontalAlignment="Center"
+                                        FontWeight="SemiBold"
+                                        Text="Перетащите файлы сюда"
+                                        TextAlignment="Center"
+                                        TextWrapping="Wrap" />
+                                    <TextBlock
+                                        HorizontalAlignment="Center"
+                                        Classes="muted"
+                                        Text="Отправка файлов пока не подключена"
+                                        TextAlignment="Center" />
+                                </StackPanel>
+                            </Border>
                             <Button
-                                HorizontalAlignment="Stretch"
-                                Classes="secondary"
-                                Content="Вставить текст"
-                                IsEnabled="False" />
-                            <Button
-                                Grid.Column="2"
                                 HorizontalAlignment="Stretch"
                                 Classes="primary"
-                                Content="Отправить текст"
+                                Content="Выбрать файлы"
                                 IsEnabled="False" />
-                        </Grid>
-                        <TextBlock Classes="muted" Text="Каждый файл отправляется отдельно и требует подтверждения получателя." />
+                            <TextBlock Classes="label" Text="Текст из буфера" />
+                            <Border
+                                Padding="14"
+                                Background="#F7F9FC"
+                                BorderBrush="#E2E9F2"
+                                BorderThickness="1"
+                                CornerRadius="{DynamicResource ControlCornerRadius}">
+                                <StackPanel Spacing="12">
+                                    <TextBox
+                                        MinHeight="65"
+                                        AcceptsReturn="True"
+                                        Background="Transparent"
+                                        BorderThickness="0"
+                                        IsEnabled="False"
+                                        PlaceholderText="Вставьте или напишите текст…"
+                                        TextWrapping="Wrap" />
+                                    <TextBlock
+                                        HorizontalAlignment="Right"
+                                        Classes="muted"
+                                        Text="До 1000 байт в UTF-8" />
+                                </StackPanel>
+                            </Border>
+                            <Grid ColumnDefinitions="*,12,*">
+                                <Button
+                                    HorizontalAlignment="Stretch"
+                                    Classes="secondary"
+                                    Content="Вставить текст"
+                                    IsEnabled="False" />
+                                <Button
+                                    Grid.Column="2"
+                                    HorizontalAlignment="Stretch"
+                                    Classes="primary"
+                                    Content="Отправить текст"
+                                    IsEnabled="False" />
+                            </Grid>
+                        </StackPanel>
                         <TextBlock
                             Margin="0,8,0,0"
                             Classes="label"
                             Text="Входящие файлы" />
-                        <Border Classes="card">
-                            <TextBlock Classes="muted" Text="Здесь появятся предложения принять файлы." />
+                        <TextBlock Classes="muted" Text="Нет входящих предложений файлов."
+                                   IsVisible="{Binding !HasIncomingFile}" />
+                        <Border Classes="card" IsVisible="{Binding HasIncomingFile}">
+                            <StackPanel Spacing="12">
+                                <TextBlock Classes="label" Text="Принять выбранный файл?" />
+                                <ListBox
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    ItemsSource="{Binding IncomingFiles}"
+                                    SelectedItem="{Binding SelectedIncomingFile, Mode=TwoWay}">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate x:DataType="protocol:FileTransfer">
+                                            <StackPanel Spacing="6">
+                                                <TextBlock
+                                                    Classes="label"
+                                                    Text="{Binding FileName}"
+                                                    TextWrapping="Wrap" />
+
+                                                <TextBlock Classes="muted" Text="{Binding FileSize, StringFormat='Размер: {0} байт'}" />
+
+                                                <TextBlock
+                                                    Classes="muted"
+                                                    Text="{Binding PeerDeviceId, StringFormat='Отправитель: {0}'}"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+
+                                <Grid ColumnDefinitions="*,12,*">
+                                    <Button
+                                        HorizontalAlignment="Stretch"
+                                        Classes="secondary"
+                                        Content="Отказаться"
+                                        Command="{Binding AnswerIncomingFileCommand}">
+                                        <Button.CommandParameter><x:Boolean>False</x:Boolean></Button.CommandParameter>
+                                    </Button>
+
+                                    <Button
+                                        Grid.Column="2"
+                                        HorizontalAlignment="Stretch"
+                                        Classes="primary"
+                                        Content="Принять"
+                                        Command="{Binding AnswerIncomingFileCommand}">
+                                        <Button.CommandParameter><x:Boolean>True</x:Boolean></Button.CommandParameter>
+                                    </Button>
+                                </Grid>
+                            </StackPanel>
                         </Border>
                         <TextBlock Classes="label" Text="Полученный текст" />
                         <Border Classes="card">
                             <TextBlock Classes="muted" Text="Здесь появится полученный текст с кнопкой копирования." />
                         </Border>
                     </StackPanel>
-                    <StackPanel IsVisible="{Binding IsTransfers}" Spacing="20">
-                        <TextBlock Classes="title" Text="Передачи" />
-                        <Border Padding="24" Classes="card">
-                            <StackPanel Spacing="12">
-                                <Path
-                                    Width="32"
-                                    Height="32"
-                                    Data="M16 3 l4 4 -4 4 M20 7 H4 M8 21 l-4 -4 4 -4 M4 17 h16"
-                                    Stretch="Uniform"
-                                    Stroke="#8EA4BE"
-                                    StrokeJoin="Round"
-                                    StrokeLineCap="Round"
-                                    StrokeThickness="1.5" />
-                                <TextBlock
-                                    HorizontalAlignment="Center"
-                                    Classes="label"
-                                    Text="Передач пока нет" />
-                                <TextBlock
-                                    Classes="muted"
-                                    Text="Здесь появятся прогресс, повторы и передачи на паузе."
-                                    TextAlignment="Center" />
-                            </StackPanel>
-                        </Border>
-                        <Button
-                            HorizontalAlignment="Stretch"
-                            Classes="secondary"
-                            Content="Подробности"
-                            IsEnabled="False" />
-                        <TextBlock Classes="muted" Text="Каждый файл отслеживается отдельно. Прогресс передачи на паузе сохраняется до 120 секунд." />
-                    </StackPanel>
+                    <views:TransfersView IsVisible="{Binding IsTransfers}" />
                     <views:SettingsView IsVisible="{Binding IsSettings}" />
                 </Grid>
             </ScrollViewer>
@@ -231,7 +309,7 @@
                                 StrokeThickness="1.7" />
                             <TextBlock
                                 HorizontalAlignment="Center"
-                                FontSize="11"
+                                Classes="caption"
                                 Foreground="{Binding $parent[Button].Foreground}"
                                 Text="Главная" />
                         </StackPanel>
@@ -254,7 +332,7 @@
                                 StrokeThickness="1.7" />
                             <TextBlock
                                 HorizontalAlignment="Center"
-                                FontSize="11"
+                                Classes="caption"
                                 Foreground="{Binding $parent[Button].Foreground}"
                                 Text="Передачи" />
                         </StackPanel>
@@ -277,7 +355,7 @@
                                 StrokeThickness="1.7" />
                             <TextBlock
                                 HorizontalAlignment="Center"
-                                FontSize="11"
+                                Classes="caption"
                                 Foreground="{Binding $parent[Button].Foreground}"
                                 Text="Настройки" />
                         </StackPanel>
