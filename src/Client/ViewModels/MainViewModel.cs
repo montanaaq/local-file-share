@@ -151,6 +151,12 @@ public partial class MainViewModel : ViewModelBase
 
             try
             {
+                using var pauseRefresh = DispatcherTimer.Run(
+                    RefreshPausedTransfers,
+                    TimeSpan.FromSeconds(1),
+                    DispatcherPriority.Background
+                );
+
                 NetworkMessage = $"Обмен запущен на порту {peerService.LocalPort}";
                 await peerService.RunAsync(ct);
             }
@@ -177,6 +183,39 @@ public partial class MainViewModel : ViewModelBase
             IncomingFiles.Clear();
             SelectedIncomingFile = null;
             AnswerIncomingFileCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    [RelayCommand]
+    private void CancelPausedTransfer(TransferItem? item)
+    {
+        var service = _peerService;
+
+        if (service is null || item is null)
+        {
+            return;
+        }
+
+        var current = service.Transfers.GetTransfer(item.Key);
+
+        if (current.State != TransferState.Paused)
+        {
+            OnTransferChanged(current);
+            NetworkMessage = "Передача уже вышла из паузы.";
+            return;
+        }
+
+        try
+        {
+            var cancelled = service.CancelPausedTransfer(item.Key);
+            OnTransferChanged(cancelled);
+
+            NetworkMessage = $"Передача «{cancelled.FileName}» отменена.";
+        }
+        catch (InvalidOperationException)
+        {
+            OnTransferChanged(service.Transfers.GetTransfer(item.Key));
+            NetworkMessage = "Состояние передачи изменилось. Повторите действие при необходимости.";
         }
     }
 
@@ -513,6 +552,31 @@ public partial class MainViewModel : ViewModelBase
 
             Transfers.Add(item);
         });
+    }
+
+    private bool RefreshPausedTransfers()
+    {
+        var service = _peerService;
+
+        if (service is null || _sessionToken.IsCancellationRequested)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < Transfers.Count; index++)
+        {
+            var item = Transfers[index];
+
+            if (!item.IsPaused)
+            {
+                continue;
+            }
+
+            var snapshot = service.Transfers.GetTransfer(item.Key);
+            Transfers[index] = new TransferItem(snapshot);
+        }
+
+        return true;
     }
 
     private bool CanSendFile()

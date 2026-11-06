@@ -39,6 +39,17 @@
                                     Classes="muted"
                                     Text="{Binding Transfer.Error}"
                                     TextWrapping="Wrap" />
+                                <StackPanel IsVisible="{Binding IsPaused}" Spacing="8">
+                                    <TextBlock Classes="label" Text="{Binding PauseTimeText, StringFormat='До завершения ожидания: {0}'}" />
+                                    <TextBlock Classes="muted" Text="Ожидается восстановление связи. Прогресс сохранён." />
+
+                                    <Button
+                                        HorizontalAlignment="Stretch"
+                                        Classes="secondary"
+                                        Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).CancelPausedTransferCommand}"
+                                        CommandParameter="{Binding}"
+                                        Content="Отменить передачу" />
+                                </StackPanel>
                             </StackPanel>
                         </Border>
                     </DataTemplate>

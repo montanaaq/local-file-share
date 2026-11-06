@@ -1,3 +1,4 @@
+using System;
 using Protocol;
 
 namespace Client;
@@ -31,4 +32,20 @@ public sealed record TransferItem(FileTransfer Transfer)
             TransferState.Cancelled => "Отменено",
             _ => "Неизвестное состояние",
         };
+
+    public bool IsPaused => Transfer.State == TransferState.Paused;
+    public string PauseTimeText
+    {
+        get
+        {
+            if (Transfer.PauseRemaining is not { } remaining)
+            {
+                return string.Empty;
+            }
+
+            double seconds = Math.Ceiling(Math.Max(0, remaining.TotalSeconds));
+
+            return TimeSpan.FromSeconds(seconds).ToString(@"mm\:ss");
+        }
+    }
 }
