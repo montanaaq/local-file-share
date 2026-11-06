@@ -1,6 +1,7 @@
 using System;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
@@ -22,6 +23,11 @@ public partial class MainViewModel : ViewModelBase
     private CancellationToken _sessionToken;
 
     public Func<Task<string?>>? PickReceiveDirectoryAsync { get; set; }
+    public Func<Task<string?>>? PickFileAsync { get; set; }
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SendFileCommand))]
+    public partial string? SelectedFilePath { get; set; }
 
     [ObservableProperty]
     public partial ClientSettings ClientSettings { get; set; } = new();
@@ -58,16 +64,18 @@ public partial class MainViewModel : ViewModelBase
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSelectedDevice))]
+    [NotifyCanExecuteChangedFor(nameof(SendFileCommand))]
     public partial Peer? SelectedDevice { get; set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasIncomingFile))]
     [NotifyCanExecuteChangedFor(nameof(AnswerIncomingFileCommand))]
-    public partial FileTransfer? SelectedIncomingFile { get; set; }
+    public partial IncomingFileOffer? SelectedIncomingFile { get; set; }
 
     public ObservableCollection<Peer> Devices { get; } = [];
 
-    public ObservableCollection<FileTransfer> IncomingFiles { get; } = [];
+    public ObservableCollection<IncomingFileOffer> IncomingFiles { get; } = [];
+    public ObservableCollection<TransferItem> Transfers { get; } = [];
 
     public bool IsHome => SelectedPage == 0;
 
@@ -128,15 +136,18 @@ public partial class MainViewModel : ViewModelBase
             _sessionToken = ct;
 
             Devices.Clear();
+            Transfers.Clear();
             IncomingFiles.Clear();
 
             OnPropertyChanged(nameof(HasDevices));
             SelectedDevice = null;
+            SelectedFilePath = null;
             SelectedIncomingFile = null;
 
             peerService.PeerChanged += OnPeerChanged;
             peerService.Transfers.FileOffered += OnFileOffered;
             peerService.Transfers.TransferChanged += OnIncomingTransferChanged;
+            peerService.Transfers.TransferChanged += OnTransferChanged;
 
             try
             {
@@ -148,6 +159,7 @@ public partial class MainViewModel : ViewModelBase
                 peerService.PeerChanged -= OnPeerChanged;
                 peerService.Transfers.FileOffered -= OnFileOffered;
                 peerService.Transfers.TransferChanged -= OnIncomingTransferChanged;
+                peerService.Transfers.TransferChanged -= OnTransferChanged;
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -229,9 +241,13 @@ public partial class MainViewModel : ViewModelBase
         {
             NetworkMessage = "Сессия остановлена, решение по файлу прервано.";
         }
-        catch (Exception exception) when (
-            exception is IOException or UnauthorizedAccessException or SocketException or TimeoutException
-        )
+        catch (Exception exception)
+            when (exception
+                    is IOException
+                        or UnauthorizedAccessException
+                        or SocketException
+                        or TimeoutException
+            )
         {
             NetworkMessage = $"Не удалось передать решение по файлу: {exception.Message}";
         }
@@ -239,7 +255,10 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnIncomingTransferChanged(FileTransfer transfer)
     {
-        if (transfer.Direction != TransferDirection.Incoming || transfer.State == TransferState.WaitingForAnswer)
+        if (
+            transfer.Direction != TransferDirection.Incoming
+            || transfer.State == TransferState.WaitingForAnswer
+        )
         {
             return;
         }
@@ -306,6 +325,104 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private void ShowSettings() => SelectedPage = 2;
 
+    [RelayCommand]
+    private async Task ChooseFileAsync()
+    {
+        var service = _peerService;
+
+        if (service is null || SelectedDevice is null)
+        {
+            NetworkMessage = "Сначала запустите обмен и выберите получателя";
+            return;
+        }
+
+        if (PickFileAsync is null)
+        {
+            NetworkMessage = "Выбор файла недоступен";
+            return;
+        }
+
+        try
+        {
+            string? path = await PickFileAsync();
+
+            if (
+                path is not null
+                && ReferenceEquals(service, _peerService)
+                && !_sessionToken.IsCancellationRequested
+            )
+            {
+                SelectedFilePath = path;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            NetworkMessage = $"Не удалось открыть файл: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Предлагает выбранный файл получателю и ожидает результат отправки.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanSendFile))]
+    private async Task SendFileAsync()
+    {
+        if (!CanSendFile())
+        {
+            return;
+        }
+        try
+        {
+            var fileInfo = new FileInfo(SelectedFilePath!);
+
+            if (!fileInfo.Exists)
+            {
+                NetworkMessage = "Выбранный файл больше не существует";
+                return;
+            }
+
+            if (fileInfo.Length > ProtocolConstants.MaxFileSize)
+            {
+                NetworkMessage =
+                    $"Размер файла не должен превышать {ProtocolConstants.MaxFileSize / 1024 / 1024} МБ";
+                return;
+            }
+
+            NetworkMessage =
+                $"Предлагаем файл «{fileInfo.Name}» устройству «{SelectedDevice!.Name}».";
+
+            var transfer = await _peerService!.OfferFileAsync(
+                SelectedDevice.DeviceId,
+                SelectedFilePath!,
+                _sessionToken
+            );
+
+            NetworkMessage = transfer.State switch
+            {
+                TransferState.Completed => "Файл успешно передан и сохранён получателем.",
+                TransferState.Rejected => "Получатель отказался от файла.",
+                TransferState.Paused => "Передача приостановлена. Ожидается восстановление связи.",
+                TransferState.Failed => $"Ошибка передачи: {transfer.Error}",
+                TransferState.Cancelled => "Передача отменена.",
+                _ => "Операция отправки завершилась. Состояние передачи изменилось.",
+            };
+        }
+        catch (OperationCanceledException) when (_sessionToken.IsCancellationRequested)
+        {
+            NetworkMessage = "Отправка прервана из-за остановки сессии";
+        }
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or SocketException
+                        or TimeoutException
+            )
+        {
+            NetworkMessage = $"Не удалось отправить файл: {ex.Message}";
+        }
+    }
+
     private void OnPeerChanged(Peer peer)
     {
         Dispatcher.UIThread.Post(() =>
@@ -332,11 +449,17 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnFileOffered(FileTransfer transfer)
     {
+        OnTransferChanged(transfer);
+
         var service = _peerService;
         Dispatcher.UIThread.Post(() =>
         {
-            if (service is null || !ReferenceEquals(service, _peerService)
-                || service.Transfers.GetTransfer(transfer.Key).State != TransferState.WaitingForAnswer)
+            if (
+                service is null
+                || !ReferenceEquals(service, _peerService)
+                || service.Transfers.GetTransfer(transfer.Key).State
+                    != TransferState.WaitingForAnswer
+            )
             {
                 return;
             }
@@ -349,8 +472,54 @@ public partial class MainViewModel : ViewModelBase
                 }
             }
 
-            IncomingFiles.Add(transfer);
-            SelectedIncomingFile ??= transfer;
+            string senderName =
+                service
+                    .GetPeers()
+                    .FirstOrDefault(peer => peer.DeviceId == transfer.PeerDeviceId)
+                    ?.Name
+                ?? "Неизвестное устройство";
+            var offer = new IncomingFileOffer(
+                transfer.Key,
+                transfer.FileName,
+                transfer.FileSize,
+                senderName
+            );
+            IncomingFiles.Add(offer);
+            SelectedIncomingFile ??= offer;
         });
+    }
+
+    private void OnTransferChanged(FileTransfer transfer)
+    {
+        var service = _peerService;
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (service is null || !ReferenceEquals(service, _peerService))
+            {
+                return;
+            }
+
+            var item = new TransferItem(transfer);
+
+            for (int index = 0; index < Transfers.Count; index++)
+            {
+                if (Transfers[index].Key == item.Key)
+                {
+                    Transfers[index] = item;
+                    return;
+                }
+            }
+
+            Transfers.Add(item);
+        });
+    }
+
+    private bool CanSendFile()
+    {
+        return _peerService is not null
+            && !_sessionToken.IsCancellationRequested
+            && SelectedDevice is not null
+            && !string.IsNullOrWhiteSpace(SelectedFilePath);
     }
 }

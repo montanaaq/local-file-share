@@ -23,6 +23,7 @@ public partial class App : Application
             window.DataContext = new MainViewModel(profile)
             {
                 PickReceiveDirectoryAsync = window.PickReceiveDirectoryAsync,
+                PickFileAsync = window.PickFileAsync,
             };
             desktop.MainWindow = window;
         }

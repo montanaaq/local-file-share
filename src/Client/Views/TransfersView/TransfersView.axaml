@@ -2,35 +2,48 @@
     x:Class="Client.Views.TransfersView"
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:client="using:Client"
+    xmlns:vm="using:Client.ViewModels"
     Height="480"
-    VerticalAlignment="Top">
+    VerticalAlignment="Top"
+    x:DataType="vm:MainViewModel">
     <Grid RowDefinitions="Auto,*,Auto">
         <TextBlock Classes="title" Text="Передачи" />
         <ScrollViewer
             Grid.Row="1"
             Margin="0,20"
             HorizontalScrollBarVisibility="Disabled">
-            <Border Padding="24" Classes="card">
-                <StackPanel Spacing="12">
-                    <Path
-                        Width="32"
-                        Height="32"
-                        Data="M16 3 l4 4 -4 4 M20 7 H4 M8 21 l-4 -4 4 -4 M4 17 h16"
-                        Stretch="Uniform"
-                        Stroke="#8EA4BE"
-                        StrokeJoin="Round"
-                        StrokeLineCap="Round"
-                        StrokeThickness="1.5" />
-                    <TextBlock
-                        HorizontalAlignment="Center"
-                        Classes="label"
-                        Text="Передач пока нет" />
-                    <TextBlock
-                        Classes="muted"
-                        Text="Здесь появятся прогресс, повторы и передачи на паузе."
-                        TextAlignment="Center" />
-                </StackPanel>
-            </Border>
+            <ItemsControl ItemsSource="{Binding Transfers}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="client:TransferItem">
+                        <Border Margin="0,0,0,12" Classes="card">
+                            <StackPanel Spacing="10">
+                                <TextBlock
+                                    Classes="label"
+                                    Text="{Binding FileName}"
+                                    TextWrapping="Wrap" />
+
+                                <TextBlock Classes="muted" Text="{Binding DirectionText}" />
+
+                                <TextBlock Classes="label" Text="{Binding StateText}" />
+
+                                <ProgressBar
+                                    Height="8"
+                                    Maximum="100"
+                                    Minimum="0"
+                                    Value="{Binding Progress}" />
+
+                                <TextBlock Classes="muted" Text="{Binding Progress, StringFormat='Прогресс: {0:0}%'}" />
+
+                                <TextBlock
+                                    Classes="muted"
+                                    Text="{Binding Transfer.Error}"
+                                    TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
         </ScrollViewer>
         <Button
             Grid.Row="2"
