@@ -87,14 +87,14 @@ public partial class MainViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(HasSelectedDevice))]
     [NotifyCanExecuteChangedFor(nameof(SendFileCommand))]
     [NotifyCanExecuteChangedFor(nameof(SendTextCommand))]
-    public partial Peer? SelectedDevice { get; set; }
+    public partial PeerItem? SelectedDevice { get; set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasIncomingFile))]
     [NotifyCanExecuteChangedFor(nameof(AnswerIncomingFileCommand))]
     public partial IncomingFileOffer? SelectedIncomingFile { get; set; }
 
-    public ObservableCollection<Peer> Devices { get; } = [];
+    public ObservableCollection<PeerItem> Devices { get; } = [];
 
     public ObservableCollection<IncomingFileOffer> IncomingFiles { get; } = [];
     public ObservableCollection<TransferItem> Transfers { get; } = [];
@@ -540,12 +540,46 @@ public partial class MainViewModel : ViewModelBase
                 && !_sessionToken.IsCancellationRequested
             )
             {
-                SelectedFilePath = path;
+                SelectFile(path);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             NetworkMessage = $"Не удалось открыть файл: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Проверяет локальный файл из диалога или перетаскивания и выбирает его для отправки.
+    /// </summary>
+    /// <param name="path">Локальный путь к файлу.</param>
+    public bool SelectFile(string path)
+    {
+        try
+        {
+            var file = new FileInfo(path);
+            if (!file.Exists)
+            {
+                NetworkMessage = "Выберите существующий файл, а не папку.";
+                return false;
+            }
+
+            if (file.Length > ProtocolConstants.MaxFileSize)
+            {
+                NetworkMessage = $"Размер файла не должен превышать {ProtocolConstants.MaxFileSize / 1024 / 1024} МБ.";
+                return false;
+            }
+
+            SelectedFilePath = file.FullName;
+            NetworkMessage = $"Выбран файл «{file.Name}». Нажмите «Отправить файл».";
+            return true;
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException
+        )
+        {
+            NetworkMessage = $"Не удалось выбрать файл: {exception.Message}";
+            return false;
         }
     }
 
@@ -619,18 +653,12 @@ public partial class MainViewModel : ViewModelBase
             {
                 if (Devices[i].DeviceId == peer.DeviceId)
                 {
-                    bool wasSelected = SelectedDevice?.DeviceId == peer.DeviceId;
-                    Devices[i] = peer;
-
-                    if (wasSelected)
-                    {
-                        SelectedDevice = peer;
-                    }
+                    Devices[i].Snapshot = peer;
                     return;
                 }
             }
 
-            Devices.Add(peer);
+            Devices.Add(new PeerItem(peer));
             OnPropertyChanged(nameof(HasDevices));
         });
     }

@@ -1,6 +1,8 @@
 using System.IO;
-using Avalonia.Input.Platform;
+using System.Linq;
 using System.Threading.Tasks;
+using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using Client.ViewModels;
@@ -75,6 +77,69 @@ public partial class MainWindow : Window
         using var file = files[0];
         return file.TryGetLocalPath()
             ?? throw new IOException("Необходимо выбрать файл для отправки");
+    }
+
+    private void OnFileDragOver(object? sender, DragEventArgs e)
+    {
+        bool allowed = DataContext is MainViewModel vm
+            && vm.SelectedDevice is not null
+            && vm.StartSearchCommand.IsRunning
+            && !vm.StartSearchCommand.IsCancellationRequested
+            && e.DataTransfer.Contains(DataFormat.File);
+        e.DragEffects = allowed ? DragDropEffects.Copy : DragDropEffects.None;
+        if (sender is Control target)
+        {
+            target.Classes.Set("dragover", allowed);
+        }
+        e.Handled = true;
+    }
+
+    private void OnFileDragLeave(object? sender, DragEventArgs e)
+    {
+        if (sender is Control target)
+        {
+            target.Classes.Remove("dragover");
+        }
+    }
+
+    private void OnFileDrop(object? sender, DragEventArgs e)
+    {
+        OnFileDragLeave(sender, e);
+        e.Handled = true;
+        e.DragEffects = DragDropEffects.None;
+        if (DataContext is not MainViewModel vm)
+        {
+            return;
+        }
+
+        if (vm.SelectedDevice is null || !vm.StartSearchCommand.IsRunning
+            || vm.StartSearchCommand.IsCancellationRequested)
+        {
+            vm.NetworkMessage = "Сначала запустите обмен и выберите получателя.";
+            return;
+        }
+
+        var items = e.DataTransfer.TryGetFiles()?.Take(2).ToArray();
+        if (items is null || items.Length == 0)
+        {
+            vm.NetworkMessage = "Перетащите один локальный файл.";
+            return;
+        }
+        if (items.Length > 1)
+        {
+            vm.NetworkMessage = "Пока можно выбрать только один файл за раз.";
+            return;
+        }
+        if (items[0] is not IStorageFile file || file.TryGetLocalPath() is not { } path)
+        {
+            vm.NetworkMessage = "Нужен локальный файл. Папки не поддерживаются.";
+            return;
+        }
+
+        if (vm.SelectFile(path))
+        {
+            e.DragEffects = DragDropEffects.Copy;
+        }
     }
 
     public Task<string?> ReadClipboardTextAsync() =>

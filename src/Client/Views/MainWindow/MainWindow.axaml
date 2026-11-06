@@ -132,7 +132,7 @@
                                     ItemsSource="{Binding Devices}"
                                     SelectedItem="{Binding SelectedDevice}">
                                     <ListBox.ItemTemplate>
-                                        <DataTemplate x:DataType="protocol:Peer">
+                                        <DataTemplate x:DataType="client:PeerItem">
                                             <StackPanel Spacing="4">
                                                 <TextBlock Classes="label" Text="{Binding Name}" />
                                                 <TextBlock Classes="muted" Text="{Binding Endpoint}" />
@@ -162,10 +162,17 @@
                                 </StackPanel>
                             </Border>
                             <TextBlock Classes="muted" Text="Получатель отдельно подтвердит или отклонит каждый файл." />
-                            <Border
+                            <Button
                                 Padding="22"
-                                Background="#FAFBFF"
-                                BorderBrush="#B9C9EE"
+                                Classes="fileDrop"
+                                Command="{Binding ChooseFileCommand}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                AutomationProperties.Name="Выбрать файл или перетащить его сюда"
+                                DragDrop.AllowDrop="True"
+                                DragDrop.DragOver="OnFileDragOver"
+                                DragDrop.DragLeave="OnFileDragLeave"
+                                DragDrop.Drop="OnFileDrop"
                                 BorderThickness="1.5"
                                 CornerRadius="{DynamicResource ControlCornerRadius}">
                                 <StackPanel Spacing="10">
@@ -181,21 +188,16 @@
                                     <TextBlock
                                         HorizontalAlignment="Center"
                                         FontWeight="SemiBold"
-                                        Text="Перетащите файлы сюда"
+                                        Text="Перетащите файл сюда"
                                         TextAlignment="Center"
                                         TextWrapping="Wrap" />
                                     <TextBlock
                                         HorizontalAlignment="Center"
                                         Classes="muted"
-                                        Text="Отправка файлов пока не подключена"
+                                        Text="Нажмите для выбора. Один файл до 20 МБ"
                                         TextAlignment="Center" />
                                 </StackPanel>
-                            </Border>
-                            <Button
-                                HorizontalAlignment="Stretch"
-                                Classes="primary"
-                                Command="{Binding ChooseFileCommand}"
-                                Content="Выбрать файл" />
+                            </Button>
 
                             <TextBlock
                                 Classes="muted"

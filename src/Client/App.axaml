@@ -42,6 +42,20 @@
             <Setter Property="CornerRadius" Value="{DynamicResource ControlCornerRadius}" />
             <Setter Property="Padding" Value="18" />
         </Style>
+        <Style Selector="Button.fileDrop">
+            <Setter Property="Background" Value="#FAFBFF" />
+            <Setter Property="BorderBrush" Value="#B9C9EE" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.15" />
+                    <BrushTransition Property="BorderBrush" Duration="0:0:0.15" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Button.fileDrop.dragover /template/ ContentPresenter#PART_ContentPresenter, Button.fileDrop:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#E9EFFF" />
+            <Setter Property="BorderBrush" Value="#3869ED" />
+        </Style>
         <Style Selector="Button">
             <Setter Property="CornerRadius" Value="{DynamicResource ControlCornerRadius}" />
             <Setter Property="Padding" Value="16,12" />
