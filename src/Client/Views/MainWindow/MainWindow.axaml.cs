@@ -1,4 +1,5 @@
 using System.IO;
+using Avalonia.Input.Platform;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
@@ -75,6 +76,12 @@ public partial class MainWindow : Window
         return file.TryGetLocalPath()
             ?? throw new IOException("Необходимо выбрать файл для отправки");
     }
+
+    public Task<string?> ReadClipboardTextAsync() =>
+        (Clipboard ?? throw new IOException("Clipboard is unavailable.")).TryGetTextAsync();
+
+    public Task WriteClipboardTextAsync(string text) =>
+        (Clipboard ?? throw new IOException("Clipboard is unavailable.")).SetTextAsync(text);
 
     private async void OnClosing(object? sender, WindowClosingEventArgs e)
     {

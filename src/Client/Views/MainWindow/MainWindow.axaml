@@ -2,8 +2,8 @@
     x:Class="Client.Views.MainWindow"
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:protocol="using:Protocol"
     xmlns:client="using:Client"
+    xmlns:protocol="using:Protocol"
     xmlns:views="using:Client.Views"
     xmlns:vm="using:Client.ViewModels"
     Title="LocalFileShare"
@@ -207,18 +207,34 @@
                                 Classes="primary"
                                 Command="{Binding SendFileCommand}"
                                 Content="Отправить файл" />
+                            <TextBlock Classes="label" Text="Текст из буфера" />
+                            <TextBox
+                                MinHeight="100"
+                                MaxHeight="220"
+                                AcceptsReturn="True"
+                                PlaceholderText="Вставьте или напишите текст…"
+                                Text="{Binding TextToSend, Mode=TwoWay}"
+                                TextWrapping="Wrap" />
+                            <TextBlock
+                                HorizontalAlignment="Right"
+                                Classes="muted"
+                                Text="{Binding TextByteCount, StringFormat='Размер: {0} / 1000 байт'}" />
+                            <TextBlock
+                                Foreground="#B42318"
+                                Text="{Binding TextValidationMessage}"
+                                TextWrapping="Wrap" />
                             <Grid ColumnDefinitions="*,12,*">
                                 <Button
                                     HorizontalAlignment="Stretch"
                                     Classes="secondary"
-                                    Content="Вставить текст"
-                                    IsEnabled="False" />
+                                    Command="{Binding PasteTextCommand}"
+                                    Content="Вставить текст" />
                                 <Button
                                     Grid.Column="2"
                                     HorizontalAlignment="Stretch"
                                     Classes="primary"
-                                    Content="Отправить текст"
-                                    IsEnabled="False" />
+                                    Command="{Binding SendTextCommand}"
+                                    Content="Отправить текст" />
                             </Grid>
                         </StackPanel>
                         <TextBlock
@@ -281,9 +297,28 @@
                             </StackPanel>
                         </Border>
                         <TextBlock Classes="label" Text="Полученный текст" />
-                        <Border Classes="card">
-                            <TextBlock Classes="muted" Text="Здесь появится полученный текст с кнопкой копирования." />
-                        </Border>
+                        <TextBlock
+                            Classes="muted"
+                            Text="{Binding TextMessage}"
+                            TextWrapping="Wrap" />
+                        <ItemsControl ItemsSource="{Binding ReceivedTexts}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="client:ReceivedText">
+                                    <Border Margin="0,0,0,12" Classes="card">
+                                        <StackPanel Spacing="10">
+                                            <TextBlock Classes="muted" Text="{Binding SenderName, StringFormat='От: {0}'}" />
+                                            <SelectableTextBlock Text="{Binding Text}" TextWrapping="Wrap" />
+                                            <Button
+                                                HorizontalAlignment="Right"
+                                                Classes="secondary"
+                                                Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).CopyReceivedTextCommand}"
+                                                CommandParameter="{Binding}"
+                                                Content="Копировать" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </StackPanel>
                     <views:TransfersView IsVisible="{Binding IsTransfers}" />
                     <views:SettingsView IsVisible="{Binding IsSettings}" />

@@ -24,6 +24,8 @@ public partial class App : Application
             {
                 PickReceiveDirectoryAsync = window.PickReceiveDirectoryAsync,
                 PickFileAsync = window.PickFileAsync,
+                ReadClipboardTextAsync = window.ReadClipboardTextAsync,
+                WriteClipboardTextAsync = window.WriteClipboardTextAsync,
             };
             desktop.MainWindow = window;
         }

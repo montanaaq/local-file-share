@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -24,6 +25,26 @@ public partial class MainViewModel : ViewModelBase
 
     public Func<Task<string?>>? PickReceiveDirectoryAsync { get; set; }
     public Func<Task<string?>>? PickFileAsync { get; set; }
+    public Func<Task<string?>>? ReadClipboardTextAsync { get; set; }
+    public Func<string, Task>? WriteClipboardTextAsync { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TextByteCount))]
+    [NotifyPropertyChangedFor(nameof(TextValidationMessage))]
+    [NotifyCanExecuteChangedFor(nameof(SendTextCommand))]
+    public partial string TextToSend { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial string TextMessage { get; set; } = string.Empty;
+
+    public int TextByteCount => Encoding.UTF8.GetByteCount(TextToSend);
+
+    public string TextValidationMessage =>
+        TextByteCount > ProtocolConstants.ClipboardTextSize
+            ? "Текст превышает ограничение 1000 байт в UTF-8."
+            : string.Empty;
+
+    public ObservableCollection<ReceivedText> ReceivedTexts { get; } = [];
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendFileCommand))]
@@ -65,6 +86,7 @@ public partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSelectedDevice))]
     [NotifyCanExecuteChangedFor(nameof(SendFileCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SendTextCommand))]
     public partial Peer? SelectedDevice { get; set; }
 
     [ObservableProperty]
@@ -145,6 +167,7 @@ public partial class MainViewModel : ViewModelBase
             SelectedIncomingFile = null;
 
             peerService.PeerChanged += OnPeerChanged;
+            peerService.TextReceived += OnTextReceived;
             peerService.Transfers.FileOffered += OnFileOffered;
             peerService.Transfers.TransferChanged += OnIncomingTransferChanged;
             peerService.Transfers.TransferChanged += OnTransferChanged;
@@ -163,6 +186,7 @@ public partial class MainViewModel : ViewModelBase
             finally
             {
                 peerService.PeerChanged -= OnPeerChanged;
+                peerService.TextReceived -= OnTextReceived;
                 peerService.Transfers.FileOffered -= OnFileOffered;
                 peerService.Transfers.TransferChanged -= OnIncomingTransferChanged;
                 peerService.Transfers.TransferChanged -= OnTransferChanged;
@@ -183,6 +207,131 @@ public partial class MainViewModel : ViewModelBase
             IncomingFiles.Clear();
             SelectedIncomingFile = null;
             AnswerIncomingFileCommand.NotifyCanExecuteChanged();
+            SendTextCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    [RelayCommand]
+    private async Task PasteTextAsync()
+    {
+        if (ReadClipboardTextAsync is null)
+        {
+            TextMessage = "Буфер обмена недоступен.";
+            return;
+        }
+
+        try
+        {
+            string? text = await ReadClipboardTextAsync();
+            if (string.IsNullOrEmpty(text))
+            {
+                TextMessage = "В буфере обмена нет текста.";
+                return;
+            }
+
+            TextToSend = text;
+            TextMessage = "Текст вставлен. Проверьте его перед отправкой.";
+        }
+        catch (Exception exception)
+            when (exception
+                    is IOException
+                        or ExternalException
+                        or NotSupportedException
+                        or InvalidOperationException
+            )
+        {
+            TextMessage = $"Не удалось прочитать буфер обмена: {exception.Message}";
+        }
+    }
+
+    private bool CanSendText() =>
+        _peerService is not null
+        && !_sessionToken.IsCancellationRequested
+        && _peerService.IsExchangeEnabled
+        && SelectedDevice is not null
+        && TextByteCount is > 0 and <= ProtocolConstants.ClipboardTextSize;
+
+    /// <summary>
+    /// Отправляет показанный в поле текст выбранному устройству и ожидает ACK.
+    /// Получатель и токен фиксируются до начала ожидания.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanSendText))]
+    private async Task SendTextAsync()
+    {
+        var service = _peerService;
+        var recipient = SelectedDevice;
+        var token = _sessionToken;
+        string text = TextToSend;
+        if (service is null || recipient is null || !CanSendText())
+        {
+            return;
+        }
+
+        try
+        {
+            TextMessage = $"Отправляем текст устройству «{recipient.Name}»…";
+            await service.SendTextAsync(recipient.DeviceId, text, token);
+            TextMessage = $"Текст доставлен устройству «{recipient.Name}».";
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            TextMessage = "Отправка текста остановлена вместе с сессией.";
+        }
+        catch (Exception exception)
+            when (exception is SocketException or TimeoutException or EncoderFallbackException)
+        {
+            TextMessage = $"Не удалось отправить текст: {exception.Message}";
+        }
+    }
+
+    private void OnTextReceived(Guid senderDeviceId, string text)
+    {
+        var service = _peerService;
+        if (service is null)
+        {
+            return;
+        }
+
+        string name =
+            service.GetPeers().FirstOrDefault(peer => peer.DeviceId == senderDeviceId)?.Name
+            ?? "Неизвестное устройство";
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (ReferenceEquals(service, _peerService))
+            {
+                ReceivedTexts.Add(new ReceivedText(name, text));
+            }
+        });
+    }
+
+    [RelayCommand]
+    private async Task CopyReceivedTextAsync(ReceivedText? message)
+    {
+        if (message is null)
+        {
+            return;
+        }
+
+        if (WriteClipboardTextAsync is null)
+        {
+            TextMessage = "Буфер обмена недоступен.";
+            return;
+        }
+
+        try
+        {
+            await WriteClipboardTextAsync(message.Text);
+            TextMessage = "Полученный текст скопирован.";
+        }
+        catch (Exception exception)
+            when (exception
+                    is IOException
+                        or ExternalException
+                        or NotSupportedException
+                        or InvalidOperationException
+            )
+        {
+            TextMessage = $"Не удалось скопировать текст: {exception.Message}";
         }
     }
 
