@@ -3,7 +3,7 @@ using Avalonia;
 
 namespace Client;
 
-sealed class Program
+public sealed class Program
 {
     [STAThread]
     public static void Main(string[] args) =>

@@ -2,6 +2,8 @@
 
 ```text
 LocalFileShare.slnx
+LocalFileShare.csproj      Запуск Avalonia-клиента из корня через dotnet run
+Program.cs                 Точка входа корневого запуска
 src/
   Protocol/                 Классовая библиотека протокола и P2P-обмена
     ProtocolConstants.cs    Общие ограничения и интервалы обмена

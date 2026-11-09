@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AvaloniaXaml Remove="**/*.axaml" />
+    <Compile Include="Program.cs" />
+    <ProjectReference Include="src/Client/Client.csproj" />
+  </ItemGroup>
+</Project>

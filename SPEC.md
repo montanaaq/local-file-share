@@ -69,6 +69,7 @@
 ```sh
 rtk proxy dotnet build LocalFileShare.slnx
 rtk proxy dotnet test tests/Protocol.Tests/Protocol.Tests.csproj
+rtk proxy dotnet run
 rtk proxy dotnet run --project src/Client/Client.csproj
 ```
 
