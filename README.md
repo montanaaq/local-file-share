@@ -18,6 +18,7 @@ src/
     ViewModels/             MainViewModel связывает сессию с моделями настроек, текста и файлов
     Models/                 Модели клиента
     Settings/               Загрузка и сохранение настроек профиля
+    Extensions/             Общий вывод размера файлов в интерфейсе
     Assets/                 Ресурсы клиента
 tests/
   Protocol.Tests/           Тесты Protocol на xUnit
@@ -25,69 +26,4 @@ tests/
     Transport/              Повторы, ACK и имитация потерь
     Peers/                  Обнаружение и обмен нескольких PeerService
     Transfers/              Сохранение файлов, проверка чанков и очистка после паузы
-```
-
-
-## Работа сервисов
-
-```mermaid
-flowchart TD
-    subgraph client[Client · Avalonia]
-        app[App] -->|Создаёт окно| view[MainWindow]
-        app -->|Назначает DataContext| viewModel[MainViewModel]
-        viewModel -->|Привязка Greeting| view
-    end
-
-    subgraph transport[UdpTransport]
-        socket[Socket] --> validation[Проверка пакета и payload]
-        validation -->|ACK| pending[Сопоставление deviceId, endpoint, seq]
-        validation -->|Обычное сообщение| queue[Очередь входящих]
-        send[Отправка пакета] --> wait[Ожидание ACK]
-        pending -->|Подтверждение| wait
-        wait -->|Тайм-аут: повтор с тем же seq| send
-    end
-
-    subgraph peers[PeerService]
-        route[Единый потребитель очереди] -->|DISCOVER / PEER_INFO| devices[Имя, адрес и доступность устройств]
-        route -->|HEARTBEAT| heartbeat[Обновление доступности и ACK]
-        monitor[Таймер поиска и HEARTBEAT] --> devices
-    end
-
-    subgraph exchange[ExchangeService]
-        dispatch[Маршрутизация обмена] -->|CLIPBOARD| dedup[Дедупликация текста и ACK]
-        toggle[Включение и отключение] --> token[Токен обмена]
-        maintenance[Обслуживание каждые 100 мс]
-    end
-
-    subgraph files[FileExchange]
-        scenario[FILE_OFFER → FILE_ANSWER → CHUNK → FILE_DONE → FILE_RESULT]
-        chunks[Один чанк → ACK → следующий]
-        resume[В паузе: FILE_OFFER каждые 2 с]
-        scenario --> chunks
-        resume -->|FILE_ANSWER.nextIndex| chunks
-    end
-
-    subgraph transfers[FileTransferService]
-        state[Состояние по TransferKey: deviceId + fileId]
-        decision[Решение пользователя] --> state
-        state --> disk[Запись .part → SHA-256 → сохранение]
-        timeouts[Проверка тайм-аутов] -->|Пауза истекла| cleanup[Ошибка и удаление .part]
-    end
-
-    viewModel -.->|Обмен пока не подключён| route
-    queue --> route
-    route -->|Файлы и текст от известного устройства| dispatch
-    dispatch -->|Файловые сообщения| scenario
-    token -.->|Отмена сетевых операций и пауза| scenario
-    maintenance --> timeouts
-    maintenance --> resume
-    scenario --> state
-    chunks -->|Чтение, запись и прогресс| state
-    dedup -->|Новый текст| notifications
-    state -->|Снимки и события| notifications
-    devices -->|Изменения устройств| notifications
-    notifications[NotificationDispatcher] --> subscribers[Подписчики]
-
-    classDef service fill:#edf6ff,stroke:#7396b8,color:#172b40;
-    class token,queue,state,notifications service;
 ```

@@ -460,28 +460,14 @@ internal sealed class FileTransferService : IAsyncDisposable
             throw;
         }
         catch (OperationCanceledException)
+            when (ct.IsCancellationRequested || completion.Task.IsCanceled)
         {
-            if (resuming)
+            lock (_stateLock)
             {
-                lock (_stateLock)
+                if (completion.Task.IsCompletedSuccessfully)
                 {
-                    if (completion.Task.IsCompletedSuccessfully)
-                    {
-                        return completion.Task.Result;
-                    }
-                    SetState(key, TransferState.Paused);
+                    return completion.Task.Result;
                 }
-                throw;
-            }
-            bool? answer = StopWaiting(
-                entry,
-                completion,
-                expectedState: TransferState.WaitingForAnswer,
-                state: TransferState.Cancelled
-            );
-            if (answer.HasValue)
-            {
-                return answer.Value;
             }
 
             throw;
@@ -549,21 +535,17 @@ internal sealed class FileTransferService : IAsyncDisposable
                 throw;
             }
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException)
+            when (ct.IsCancellationRequested || completion.Task.IsCanceled)
         {
-            bool? received = StopWaiting(
-                entry,
-                completion,
-                TransferState.Transferring,
-                TransferState.Cancelled
-            );
-            if (received.HasValue)
+            lock (_stateLock)
             {
-                ok = received.Value;
-            }
-            else
-            {
-                throw;
+                if (!completion.Task.IsCompletedSuccessfully)
+                {
+                    throw;
+                }
+
+                ok = completion.Task.Result;
             }
         }
         finally
@@ -604,7 +586,6 @@ internal sealed class FileTransferService : IAsyncDisposable
         Exception? error = null
     )
     {
-        FileTransfer snapshot;
         lock (_stateLock)
         {
             if (completion.Task.IsCompletedSuccessfully)
@@ -612,18 +593,10 @@ internal sealed class FileTransferService : IAsyncDisposable
                 return completion.Task.Result;
             }
 
-            if (_disposed || entry.Transfer.State != expectedState)
+            if (!_disposed && entry.Transfer.State == expectedState)
             {
-                return null;
+                SetState(entry.Transfer.Key, state, error);
             }
-
-            entry.ChangeState(state, _timeProvider.GetTimestamp());
-            snapshot = Snapshot(entry);
-        }
-        TransferChanged?.Invoke(snapshot.Snapshot());
-        if (error is not null)
-        {
-            TransferFailed?.Invoke(snapshot, error);
         }
 
         return null;
@@ -707,7 +680,7 @@ internal sealed class FileTransferService : IAsyncDisposable
                     entry.Transfer.ResumeCount++;
                 }
                 entry.PauseStarted = null;
-                TransferChanged?.Invoke(Snapshot(entry));
+                PublishProgress(entry);
                 return true;
             }
         }
@@ -976,8 +949,29 @@ internal sealed class FileTransferService : IAsyncDisposable
                 ?? throw new InvalidOperationException("Transfer has no outgoing file");
             file.ConfirmChunk(index);
             entry.LastActivity = _timeProvider.GetTimestamp();
-            TransferChanged?.Invoke(Snapshot(entry));
+            PublishProgress(entry);
         }
+    }
+
+    /// <summary>
+    /// Публикует прогресс entry не чаще установленного интервала; последний чанк публикуется сразу.
+    /// Вызывается под блокировкой состояния. Изменения состояния отправляются отдельно без задержки.
+    /// </summary>
+    private void PublishProgress(TransferEntry entry)
+    {
+        long now = _timeProvider.GetTimestamp();
+        if (
+            entry.Transfer.NextIndex != entry.Transfer.ChunkCount
+            && entry.LastProgressNotification is long last
+            && _timeProvider.GetElapsedTime(last, now)
+                < ProtocolConstants.ProgressNotificationInterval
+        )
+        {
+            return;
+        }
+
+        entry.LastProgressNotification = now;
+        TransferChanged?.Invoke(Snapshot(entry));
     }
 
     /// <summary>

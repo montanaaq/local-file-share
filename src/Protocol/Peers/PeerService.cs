@@ -24,20 +24,24 @@ public sealed class PeerService : IAsyncDisposable
     private Task? _disposeTask;
 
     /// <summary>
-    /// Создаёт сессию устройства с новым deviceId и открывает локальный UDP-порт.
+    /// Создаёт сетевую сессию устройства и открывает локальный UDP-порт.
     /// </summary>
     /// <param name="name">Непустое имя устройства, не более 255 байт UTF-8.</param>
     /// <param name="localPort">Порт прослушивания; по умолчанию 5000, значение 0 выбирает свободный порт.</param>
     /// <param name="timeProvider">Источник времени для таймеров; null использует системное время.</param>
+    /// <param name="deviceId">Идентификатор экземпляра приложения; null создаёт новый.</param>
+    /// <param name="initialSeq">Следующий seq после предыдущей сетевой сессии этого экземпляра.</param>
     public PeerService(
         string name,
         int localPort = ProtocolConstants.DefaultPort,
-        TimeProvider? timeProvider = null
+        TimeProvider? timeProvider = null,
+        Guid? deviceId = null,
+        uint initialSeq = 0
     )
     {
-        DeviceId = Guid.NewGuid();
+        DeviceId = deviceId ?? Guid.NewGuid();
         _peerInfoPayload = Payloads.EncodePeerInfo(DeviceId, name);
-        _transport = new UdpTransport(localPort);
+        _transport = new UdpTransport(localPort, initialSeq);
         _timeProvider = timeProvider ?? TimeProvider.System;
         _notifications = new NotificationDispatcher();
         _exchange = new ExchangeService(
@@ -53,6 +57,7 @@ public sealed class PeerService : IAsyncDisposable
 
     public Guid DeviceId { get; }
     public int LocalPort => _transport.LocalPort;
+    public uint NextSequence => _transport.NextSequence;
     public int LossRate
     {
         get => _transport.LossRate;
@@ -329,17 +334,27 @@ public sealed class PeerService : IAsyncDisposable
             _timeProvider.GetUtcNow(),
             PeerAvailability.Available
         );
+        bool changed;
         lock (_stateLock)
         {
+            changed =
+                !_peers.TryGetValue(deviceId, out var previous)
+                || previous.Peer.Name != name
+                || !previous.Peer.Endpoint.Equals(endpoint)
+                || previous.Peer.Availability != PeerAvailability.Available;
             _peers[deviceId] = (peer, _timeProvider.GetTimestamp());
         }
 
-        _notifications.Post(PeerChanged, handler => handler(peer));
+        if (changed)
+        {
+            _notifications.Post(PeerChanged, handler => handler(peer));
+        }
     }
 
     private bool RefreshPeer(Guid deviceId, IPEndPoint endpoint)
     {
         Peer updated;
+        bool changed;
         lock (_stateLock)
         {
             if (
@@ -350,6 +365,7 @@ public sealed class PeerService : IAsyncDisposable
                 return false;
             }
 
+            changed = entry.Peer.Availability != PeerAvailability.Available;
             updated = entry.Peer with
             {
                 LastSeen = _timeProvider.GetUtcNow(),
@@ -357,7 +373,10 @@ public sealed class PeerService : IAsyncDisposable
             };
             _peers[deviceId] = (updated, _timeProvider.GetTimestamp());
         }
-        _notifications.Post(PeerChanged, handler => handler(updated));
+        if (changed)
+        {
+            _notifications.Post(PeerChanged, handler => handler(updated));
+        }
         return true;
     }
 

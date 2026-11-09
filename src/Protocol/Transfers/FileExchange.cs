@@ -110,7 +110,10 @@ internal sealed class FileExchange : IAsyncDisposable, ITransferSource
         Guid peerDeviceId,
         string filePath,
         CancellationToken ct
-    ) => StartOutgoingOperation(() => OfferFileCoreAsync(peerDeviceId, filePath, ct));
+    ) =>
+        StartOutgoingOperation(exchangeToken =>
+            OfferFileCoreAsync(peerDeviceId, filePath, ct, exchangeToken)
+        );
 
     /// <summary>
     /// Для peerDeviceId подготавливает файл по filePath, отправляет предложение и ожидает отдельного решения.
@@ -119,12 +122,13 @@ internal sealed class FileExchange : IAsyncDisposable, ITransferSource
     private async Task<FileTransfer> OfferFileCoreAsync(
         Guid peerDeviceId,
         string filePath,
-        CancellationToken callerToken
+        CancellationToken callerToken,
+        CancellationToken exchangeToken
     )
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(
             callerToken,
-            GetExchangeToken(),
+            exchangeToken,
             _stopCts.Token
         );
         var ct = cts.Token;
@@ -182,7 +186,10 @@ internal sealed class FileExchange : IAsyncDisposable, ITransferSource
         bool accepted,
         string directory,
         CancellationToken ct
-    ) => StartOutgoingOperation(() => AnswerFileOfferCoreAsync(key, accepted, directory, ct));
+    ) =>
+        StartOutgoingOperation(exchangeToken =>
+            AnswerFileOfferCoreAsync(key, accepted, directory, ct, exchangeToken)
+        );
 
     /// <summary>
     /// Применяет решение accepted к предложению key; directory задаёт папку приёма.
@@ -192,12 +199,13 @@ internal sealed class FileExchange : IAsyncDisposable, ITransferSource
         TransferKey key,
         bool accepted,
         string directory,
-        CancellationToken callerToken
+        CancellationToken callerToken,
+        CancellationToken exchangeToken
     )
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(
             callerToken,
-            GetExchangeToken(),
+            exchangeToken,
             _stopCts.Token
         );
         var ct = cts.Token;
@@ -754,12 +762,15 @@ internal sealed class FileExchange : IAsyncDisposable, ITransferSource
     private bool IsExchangeInterruption(CancellationToken callerToken) =>
         !_stopCts.IsCancellationRequested && !callerToken.IsCancellationRequested;
 
-    private Task<FileTransfer> StartOutgoingOperation(Func<Task<FileTransfer>> start)
+    private Task<FileTransfer> StartOutgoingOperation(
+        Func<CancellationToken, Task<FileTransfer>> start
+    )
     {
         lock (_stateLock)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            var operation = Task.Run(start);
+            var exchangeToken = GetExchangeToken();
+            var operation = Task.Run(() => start(exchangeToken));
             _outgoingCompletions.TrackCompletion(operation);
             return operation;
         }

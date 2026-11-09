@@ -46,8 +46,10 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
     /// Открывает IPv4 UDP-сокет с broadcast и запускает единый цикл приёма.
     /// </summary>
     /// <param name="localPort">Локальный порт; 0 выбирает свободный порт. Для приложения передавайте DefaultPort явно.</param>
-    public UdpTransport(int localPort = 0)
+    /// <param name="initialSeq">Следующий seq, сохранённый после закрытия предыдущей сетевой сессии.</param>
+    public UdpTransport(int localPort = 0, uint initialSeq = 0)
     {
+        _nextSeq = initialSeq;
         _socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         try
         {
@@ -102,6 +104,8 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
         );
 
     public uint NextSeq() => unchecked(Interlocked.Increment(ref _nextSeq) - 1);
+
+    public uint NextSequence => Volatile.Read(ref _nextSeq);
 
     public int LossRate
     {

@@ -13,6 +13,7 @@ internal sealed class TransferEntry
     public Task<bool>? IncomingCompletion { get; set; }
     public bool? ReceivedResult { get; set; }
     public long LastActivity { get; set; }
+    public long? LastProgressNotification { get; set; }
     public long? PauseStarted { get; set; }
     public bool Resuming { get; set; }
 

@@ -13,12 +13,18 @@ public partial class PeerItem : ObservableObject
     }
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(Name), nameof(Endpoint), nameof(Availability))]
+    [NotifyPropertyChangedFor(
+        nameof(Name),
+        nameof(Endpoint),
+        nameof(Availability),
+        nameof(IsAvailable)
+    )]
     public partial Peer Snapshot { get; set; }
 
     public Guid DeviceId => Snapshot.DeviceId;
     public string Name => Snapshot.Name;
     public IPEndPoint Endpoint => Snapshot.Endpoint;
+    public bool IsAvailable => Snapshot.Availability == PeerAvailability.Available;
     public string Availability =>
         Snapshot.Availability switch
         {

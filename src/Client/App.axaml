@@ -24,7 +24,7 @@
             <Setter Property="FontWeight" Value="Bold" />
         </Style>
         <Style Selector="TextBlock.muted">
-            <Setter Property="Foreground" Value="#7C8FA8" />
+            <Setter Property="Foreground" Value="#60748C" />
             <Setter Property="FontSize" Value="14" />
             <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
@@ -35,6 +35,34 @@
             <Setter Property="FontSize" Value="24" />
         </Style>
         <Style Selector="TextBlock.label">
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="TextBlock.error">
+            <Setter Property="Foreground" Value="#B42318" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.warning">
+            <Setter Property="Foreground" Value="#946200" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.sessionStatus">
+            <Setter Property="Foreground" Value="#60748C" />
+        </Style>
+        <Style Selector="TextBlock.sessionStatus.active">
+            <Setter Property="Foreground" Value="#22865E" />
+        </Style>
+        <Style Selector="TextBlock.sessionStatus.interrupted">
+            <Setter Property="Foreground" Value="#946200" />
+        </Style>
+        <Style Selector="Ellipse.statusDot">
+            <Setter Property="Fill" Value="#94A3B8" />
+        </Style>
+        <Style Selector="Ellipse.statusDot.available">
+            <Setter Property="Fill" Value="#22865E" />
+        </Style>
+        <Style Selector="TextBlock.statValue">
+            <Setter Property="FontSize" Value="22" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
         <Style Selector="Border.card">
@@ -94,6 +122,10 @@
         <Style Selector="Button.secondary">
             <Setter Property="Background" Value="#EDF3F9" />
             <Setter Property="Foreground" Value="#3D607E" />
+        </Style>
+        <Style Selector="Button.danger">
+            <Setter Property="Background" Value="#FEECEB" />
+            <Setter Property="Foreground" Value="#B42318" />
         </Style>
         <Style Selector="Button.nav">
             <Setter Property="Background" Value="Transparent" />

@@ -19,6 +19,9 @@ public sealed record TransferItem(FileTransfer Transfer)
                 : 0
             : 100.0 * Transfer.TransferredBytes / Transfer.FileSize;
 
+    public string ProgressText =>
+        $"{Transfer.TransferredBytes.ToFileSize()} из {Transfer.FileSize.ToFileSize()} · {Progress:0}%";
+
     public string StateText =>
         Transfer.State switch
         {

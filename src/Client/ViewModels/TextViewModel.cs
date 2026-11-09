@@ -14,7 +14,7 @@ using Protocol;
 
 namespace Client.ViewModels;
 
-public partial class TextViewModel : ViewModelBase
+public partial class TextViewModel : ObservableObject
 {
     private PeerService? _peerService;
     private CancellationToken _sessionToken;
@@ -97,7 +97,9 @@ public partial class TextViewModel : ViewModelBase
         _peerService is not null
         && !_sessionToken.IsCancellationRequested
         && _peerService.IsExchangeEnabled
+        && _peerService.LossRate < 100
         && Recipient is not null
+        && Recipient.Snapshot.Availability == PeerAvailability.Available
         && TextByteCount is > 0 and <= ProtocolConstants.ClipboardTextSize;
 
     /// <summary>

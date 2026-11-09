@@ -16,7 +16,8 @@
                 <TextBox
                     IsEnabled="{Binding !StartSearchCommand.IsRunning}"
                     PlaceholderText="Имя устройства"
-                    Text="{Binding Settings.ClientSettings.DeviceName, Mode=TwoWay}" />
+                    Text="{Binding Settings.DeviceName, Mode=TwoWay}" />
+                <TextBlock Classes="error" IsVisible="{Binding Settings.HasDeviceNameError}" Text="{Binding Settings.DeviceNameError}" />
             </StackPanel>
         </Border>
         <Border Classes="card">
@@ -26,7 +27,8 @@
                     IsEnabled="{Binding !StartSearchCommand.IsRunning}"
                     Maximum="65535"
                     Minimum="1"
-                    Value="{Binding Settings.ClientSettings.LocalPort, Mode=TwoWay}" />
+                    Value="{Binding Settings.LocalPort, Mode=TwoWay}" />
+                <TextBlock Classes="error" IsVisible="{Binding Settings.HasLocalPortError}" Text="{Binding Settings.LocalPortError}" />
             </StackPanel>
         </Border>
         <Button
@@ -38,8 +40,8 @@
         <Border Classes="card">
             <Grid ColumnDefinitions="*,Auto">
                 <StackPanel Spacing="5">
-                    <TextBlock Classes="label" Text="Обмен" />
-                    <TextBlock Classes="muted" Text="{Binding NetworkMessage}" TextWrapping="Wrap" />
+                    <TextBlock Classes="label" Text="Обмен с устройствами" />
+                    <TextBlock Classes="muted" Text="Выключение обмена сохраняет незавершённые передачи в паузе." TextWrapping="Wrap" />
                 </StackPanel>
                 <ToggleSwitch
                     Grid.Column="1"
@@ -54,9 +56,9 @@
             IsVisible="{Binding !StartSearchCommand.IsRunning}" />
         <Button
             Command="{Binding StartSearchCancelCommand}"
-            Content="Остановить сессию для изменения имени или порта"
+            Content="Остановить сессию и изменить имя или порт"
             IsVisible="{Binding StartSearchCommand.IsRunning}" />
-        <TextBlock Classes="muted" Text="Для изменения имени или порта остановите сессию. Настройки сети применяются сразу; сохраните их для следующего запуска."
+        <TextBlock Classes="muted" Text="Остановка сессии завершает текущие передачи. Для временного перерыва выключите обмен переключателем выше. Сохраните настройки для следующего запуска."
             TextWrapping="Wrap" />
         <TextBlock
             Margin="0,8,0,0"

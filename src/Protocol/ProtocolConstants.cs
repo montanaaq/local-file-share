@@ -21,5 +21,6 @@ public static class ProtocolConstants
     public static readonly TimeSpan PauseTimeout = TimeSpan.FromSeconds(120);
     public static readonly TimeSpan ProbeInterval = TimeSpan.FromSeconds(2);
     public static readonly TimeSpan MaintenanceInterval = TimeSpan.FromMilliseconds(100);
+    public static readonly TimeSpan ProgressNotificationInterval = TimeSpan.FromMilliseconds(100);
     public const int ProcessedMessagesCapacity = 256;
 }
