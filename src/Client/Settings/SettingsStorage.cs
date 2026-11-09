@@ -17,7 +17,7 @@ public sealed class SettingsStorage
             if (!char.IsAsciiLetterOrDigit(character) && character != '-' && character != '_')
             {
                 throw new ArgumentException(
-                    "Profile may only contain ASCII letters, digits",
+                    "Имя профиля может содержать только латинские буквы, цифры, дефис и подчёркивание.",
                     nameof(profile)
                 );
             }
@@ -38,17 +38,21 @@ public sealed class SettingsStorage
         }
         string json = File.ReadAllText(_filePath);
 
-        return JsonSerializer.Deserialize<ClientSettings>(json)
-            ?? throw new InvalidDataException("Settings file is empty");
+        var settings =
+            JsonSerializer.Deserialize<ClientSettings>(json)
+            ?? throw new InvalidDataException("Файл настроек пуст.");
+        settings.Validate();
+        return settings;
     }
 
     public void Save(ClientSettings settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        settings.Validate();
 
         string directory =
             Path.GetDirectoryName(_filePath)
-            ?? throw new InvalidOperationException("Settings directory is missing");
+            ?? throw new InvalidOperationException("Папка настроек не найдена.");
 
         Directory.CreateDirectory(directory);
 

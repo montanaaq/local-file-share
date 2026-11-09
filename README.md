@@ -17,8 +17,10 @@ src/
     Views/                  Окна и разметка
     ViewModels/             Состояние и команды UI
     Models/                 Модели клиента
+    Settings/               Загрузка и сохранение настроек профиля
     Assets/                 Ресурсы клиента
 tests/
+  Client.Tests/             Настройки клиента, валидация и имитация обрыва связи
   Protocol.Tests/           Тесты Protocol на xUnit
     Messages/               Сетевой формат и некорректные пакеты
     Transport/              Доставка, ACK, повторы и дедупликация

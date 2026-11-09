@@ -59,6 +59,63 @@ public partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     public partial string NetworkMessage { get; set; } = "Обмен не запущен";
 
+    public string FileSizeHint =>
+        $"Выберите один файл до {ProtocolConstants.MaxFileSize / 1024 / 1024} МиБ";
+    public bool IsNetworkActive => _peerService is { IsExchangeEnabled: true };
+
+    public int LossRate
+    {
+        get => _peerService?.LossRate ?? (IsConnectionBroken ? 100 : ClientSettings.LossRate);
+        set
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(value);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(value, 100);
+            if (IsConnectionBroken)
+            {
+                return;
+            }
+
+            ClientSettings.LossRate = value;
+            if (_peerService is { } service)
+            {
+                service.LossRate = value;
+            }
+
+            OnPropertyChanged();
+        }
+    }
+
+    [ObservableProperty]
+    public partial bool IsConnectionBroken { get; set; }
+
+    partial void OnIsConnectionBrokenChanged(bool value)
+    {
+        if (_peerService is { } service)
+        {
+            service.LossRate = value ? 100 : ClientSettings.LossRate;
+        }
+
+        OnPropertyChanged(nameof(LossRate));
+    }
+
+    public bool IsExchangeEnabled
+    {
+        get => _peerService?.IsExchangeEnabled ?? ClientSettings.IsExchangeEnabled;
+        set
+        {
+            _peerService?.SetExchangeEnabled(value);
+            ClientSettings.IsExchangeEnabled = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsNetworkActive));
+            SendFileCommand.NotifyCanExecuteChanged();
+            SendTextCommand.NotifyCanExecuteChanged();
+            AnswerIncomingFileCommand.NotifyCanExecuteChanged();
+            NetworkMessage = value
+                ? "Обмен включён."
+                : "Обмен выключен. Незавершённые передачи приостановлены.";
+        }
+    }
+
     public MainViewModel()
         : this("default") { }
 
@@ -71,7 +128,12 @@ public partial class MainViewModel : ViewModelBase
             ClientSettings = _settingsStorage.Load();
         }
         catch (Exception exception)
-            when (exception is IOException or UnauthorizedAccessException or JsonException)
+            when (exception
+                    is IOException
+                        or UnauthorizedAccessException
+                        or JsonException
+                        or ArgumentException
+            )
         {
             SettingsMessage = $"Не удалось загрузить настройки: {exception.Message}";
         }
@@ -132,18 +194,13 @@ public partial class MainViewModel : ViewModelBase
             return;
         }
 
-        if (
-            string.IsNullOrWhiteSpace(ClientSettings.DeviceName)
-            || Encoding.UTF8.GetByteCount(ClientSettings.DeviceName) > 255
-        )
+        try
         {
-            NetworkMessage = "Укажите непустое имя размером до 255 байт в UTF-8";
-            return;
+            ClientSettings.Validate();
         }
-
-        if (ClientSettings.LocalPort is < 1 or > 65535)
+        catch (ArgumentException exception)
         {
-            NetworkMessage = "Порт должен быть от 1 до 65535";
+            NetworkMessage = exception.Message;
             return;
         }
 
@@ -156,6 +213,13 @@ public partial class MainViewModel : ViewModelBase
 
             _peerService = peerService;
             _sessionToken = ct;
+            peerService.LossRate = IsConnectionBroken ? 100 : ClientSettings.LossRate;
+            peerService.SetExchangeEnabled(ClientSettings.IsExchangeEnabled);
+            OnPropertyChanged(nameof(IsNetworkActive));
+            OnPropertyChanged(nameof(IsExchangeEnabled));
+            OnPropertyChanged(nameof(LossRate));
+            SendFileCommand.NotifyCanExecuteChanged();
+            SendTextCommand.NotifyCanExecuteChanged();
 
             Devices.Clear();
             Transfers.Clear();
@@ -180,7 +244,9 @@ public partial class MainViewModel : ViewModelBase
                     DispatcherPriority.Background
                 );
 
-                NetworkMessage = $"Обмен запущен на порту {peerService.LocalPort}";
+                NetworkMessage = peerService.IsExchangeEnabled
+                    ? $"Обмен запущен на порту {peerService.LocalPort}."
+                    : $"Сессия запущена на порту {peerService.LocalPort}. Обмен выключен.";
                 await peerService.RunAsync(ct);
             }
             finally
@@ -203,11 +269,15 @@ public partial class MainViewModel : ViewModelBase
         finally
         {
             _peerService = null;
+            OnPropertyChanged(nameof(IsNetworkActive));
+            OnPropertyChanged(nameof(IsExchangeEnabled));
+            OnPropertyChanged(nameof(LossRate));
             SelectedDevice = null;
             IncomingFiles.Clear();
             SelectedIncomingFile = null;
             AnswerIncomingFileCommand.NotifyCanExecuteChanged();
             SendTextCommand.NotifyCanExecuteChanged();
+            SendFileCommand.NotifyCanExecuteChanged();
         }
     }
 
@@ -273,9 +343,12 @@ public partial class MainViewModel : ViewModelBase
             await service.SendTextAsync(recipient.DeviceId, text, token);
             TextMessage = $"Текст доставлен устройству «{recipient.Name}».";
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        catch (OperationCanceledException exception)
+            when (token.IsCancellationRequested
+                || exception.CancellationToken.IsCancellationRequested
+            )
         {
-            TextMessage = "Отправка текста остановлена вместе с сессией.";
+            TextMessage = "Отправка текста остановлена.";
         }
         catch (Exception exception)
             when (exception is SocketException or TimeoutException or EncoderFallbackException)
@@ -370,6 +443,7 @@ public partial class MainViewModel : ViewModelBase
 
     private bool CanAnswerIncomingFile(bool accepted) =>
         _peerService is not null
+        && _peerService.IsExchangeEnabled
         && !_sessionToken.IsCancellationRequested
         && SelectedIncomingFile is not null;
 
@@ -414,6 +488,12 @@ public partial class MainViewModel : ViewModelBase
                 return;
             }
 
+            if (!service.IsExchangeEnabled)
+            {
+                NetworkMessage = "Включите обмен, прежде чем принять или отклонить файл.";
+                return;
+            }
+
             await service.AnswerFileOfferAsync(transfer.Key, accepted, directory, token);
             IncomingFiles.Remove(transfer);
             if (SelectedIncomingFile?.Key == transfer.Key)
@@ -425,7 +505,10 @@ public partial class MainViewModel : ViewModelBase
                 ? $"Файл «{transfer.FileName}» принят. Папка: {directory}"
                 : $"Файл «{transfer.FileName}» отклонён.";
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        catch (OperationCanceledException exception)
+            when (token.IsCancellationRequested
+                || exception.CancellationToken.IsCancellationRequested
+            )
         {
             NetworkMessage = "Сессия остановлена, решение по файлу прервано.";
         }
@@ -477,28 +560,13 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private void SaveSettings()
     {
-        if (
-            string.IsNullOrWhiteSpace(ClientSettings.DeviceName)
-            || Encoding.UTF8.GetByteCount(ClientSettings.DeviceName) > 255
-        )
-        {
-            SettingsMessage =
-                "Имя устройства не должно быть пустым и должно занимать не более 255 байт в UTF-8.";
-            return;
-        }
-
-        if (ClientSettings.LocalPort is < 1 or > 65535)
-        {
-            SettingsMessage = "Порт должен быть от 1 до 65535.";
-            return;
-        }
-
         try
         {
             _settingsStorage.Save(ClientSettings);
             SettingsMessage = "Настройки сохранены.";
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception)
+            when (exception is IOException or UnauthorizedAccessException or ArgumentException)
         {
             SettingsMessage = $"Не удалось сохранить настройки: {exception.Message}";
         }
@@ -566,7 +634,8 @@ public partial class MainViewModel : ViewModelBase
 
             if (file.Length > ProtocolConstants.MaxFileSize)
             {
-                NetworkMessage = $"Размер файла не должен превышать {ProtocolConstants.MaxFileSize / 1024 / 1024} МБ.";
+                NetworkMessage =
+                    $"Размер файла не должен превышать {ProtocolConstants.MaxFileSize / 1024 / 1024} МБ.";
                 return false;
             }
 
@@ -574,9 +643,13 @@ public partial class MainViewModel : ViewModelBase
             NetworkMessage = $"Выбран файл «{file.Name}». Нажмите «Отправить файл».";
             return true;
         }
-        catch (Exception exception) when (
-            exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException
-        )
+        catch (Exception exception)
+            when (exception
+                    is IOException
+                        or UnauthorizedAccessException
+                        or ArgumentException
+                        or NotSupportedException
+            )
         {
             NetworkMessage = $"Не удалось выбрать файл: {exception.Message}";
             return false;
@@ -759,6 +832,7 @@ public partial class MainViewModel : ViewModelBase
     private bool CanSendFile()
     {
         return _peerService is not null
+            && _peerService.IsExchangeEnabled
             && !_sessionToken.IsCancellationRequested
             && SelectedDevice is not null
             && !string.IsNullOrWhiteSpace(SelectedFilePath);

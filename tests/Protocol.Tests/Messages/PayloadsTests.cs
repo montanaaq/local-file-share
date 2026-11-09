@@ -112,6 +112,7 @@ public class PayloadsTests
     [Theory]
     [InlineData(0ul)]
     [InlineData(20971520ul)]
+    [InlineData((ulong)ProtocolConstants.MaxFileSize)]
     public void EncodeDecodeFileOffer_KeepsBoundarySizeAndUtf8Name(ulong size)
     {
         byte[] encoded = Payloads.EncodeFileOffer(
@@ -135,7 +136,7 @@ public class PayloadsTests
             Payloads.EncodeFileOffer(
                 Guid.NewGuid(),
                 Guid.NewGuid(),
-                20971521,
+                (ulong)ProtocolConstants.MaxFileSize + 1,
                 new byte[32],
                 "a.txt"
             )
@@ -149,7 +150,7 @@ public class PayloadsTests
         );
         BinaryPrimitives.WriteUInt64BigEndian(
             encoded.AsSpan(PayloadsConstants.FileSizeOffset),
-            20971521
+            (ulong)ProtocolConstants.MaxFileSize + 1
         );
         Assert.Null(Payloads.DecodeFileOffer(encoded));
     }

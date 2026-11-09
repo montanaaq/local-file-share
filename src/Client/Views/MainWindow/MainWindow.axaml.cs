@@ -1,9 +1,9 @@
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
-using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using Client.ViewModels;
 
@@ -19,6 +19,13 @@ public partial class MainWindow : Window
         InitializeComponent();
 
         Closing += OnClosing;
+        Opened += (_, _) =>
+        {
+            if (DataContext is MainViewModel viewModel)
+            {
+                viewModel.StartSearchCommand.Execute(null);
+            }
+        };
     }
 
     public async Task<string?> PickReceiveDirectoryAsync()
@@ -34,7 +41,7 @@ public partial class MainWindow : Window
 
         if (!StorageProvider.CanPickFolder)
         {
-            throw new System.IO.IOException("Folder selection is unavailable on this platform.");
+            throw new System.IO.IOException("Выбор папки недоступен на этой платформе.");
         }
 
         var folders = await StorageProvider.OpenFolderPickerAsync(
@@ -51,7 +58,7 @@ public partial class MainWindow : Window
 
         using var folder = folders[0];
         return folder.TryGetLocalPath()
-            ?? throw new System.IO.IOException("A local folder is required.");
+            ?? throw new System.IO.IOException("Необходимо выбрать локальную папку.");
     }
 
     public async Task<string?> PickFileAsync()
@@ -81,8 +88,10 @@ public partial class MainWindow : Window
 
     private void OnFileDragOver(object? sender, DragEventArgs e)
     {
-        bool allowed = DataContext is MainViewModel vm
+        bool allowed =
+            DataContext is MainViewModel vm
             && vm.SelectedDevice is not null
+            && vm.IsNetworkActive
             && vm.StartSearchCommand.IsRunning
             && !vm.StartSearchCommand.IsCancellationRequested
             && e.DataTransfer.Contains(DataFormat.File);
@@ -112,8 +121,12 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (vm.SelectedDevice is null || !vm.StartSearchCommand.IsRunning
-            || vm.StartSearchCommand.IsCancellationRequested)
+        if (
+            vm.SelectedDevice is null
+            || !vm.IsNetworkActive
+            || !vm.StartSearchCommand.IsRunning
+            || vm.StartSearchCommand.IsCancellationRequested
+        )
         {
             vm.NetworkMessage = "Сначала запустите обмен и выберите получателя.";
             return;
@@ -143,10 +156,10 @@ public partial class MainWindow : Window
     }
 
     public Task<string?> ReadClipboardTextAsync() =>
-        (Clipboard ?? throw new IOException("Clipboard is unavailable.")).TryGetTextAsync();
+        (Clipboard ?? throw new IOException("Буфер обмена недоступен.")).TryGetTextAsync();
 
     public Task WriteClipboardTextAsync(string text) =>
-        (Clipboard ?? throw new IOException("Clipboard is unavailable.")).SetTextAsync(text);
+        (Clipboard ?? throw new IOException("Буфер обмена недоступен.")).SetTextAsync(text);
 
     private async void OnClosing(object? sender, WindowClosingEventArgs e)
     {

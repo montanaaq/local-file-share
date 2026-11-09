@@ -80,12 +80,12 @@
                             <TextBlock
                                 Classes="caption"
                                 Foreground="#60748C"
-                                IsVisible="{Binding !StartSearchCommand.IsRunning}"
+                                IsVisible="{Binding !IsNetworkActive}"
                                 Text="Не в сети" />
                             <TextBlock
                                 Classes="caption"
                                 Foreground="#22865E"
-                                IsVisible="{Binding StartSearchCommand.IsRunning}"
+                                IsVisible="{Binding IsNetworkActive}"
                                 Text="В сети" />
                         </Grid>
                     </Border>
@@ -194,7 +194,7 @@
                                     <TextBlock
                                         HorizontalAlignment="Center"
                                         Classes="muted"
-                                        Text="Нажмите для выбора. Один файл до 20 МБ"
+                                        Text="{Binding FileSizeHint}"
                                         TextAlignment="Center" />
                                 </StackPanel>
                             </Button>

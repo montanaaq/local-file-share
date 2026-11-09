@@ -19,5 +19,12 @@ public partial class PeerItem : ObservableObject
     public Guid DeviceId => Snapshot.DeviceId;
     public string Name => Snapshot.Name;
     public IPEndPoint Endpoint => Snapshot.Endpoint;
-    public PeerAvailability Availability => Snapshot.Availability;
+    public string Availability =>
+        Snapshot.Availability switch
+        {
+            PeerAvailability.Available => "Доступно",
+            PeerAvailability.Unreachable => "Нет связи",
+            PeerAvailability.Offline => "Не в сети",
+            _ => "Неизвестное состояние",
+        };
 }

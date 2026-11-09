@@ -39,11 +39,25 @@
             <Grid ColumnDefinitions="*,Auto">
                 <StackPanel Spacing="5">
                     <TextBlock Classes="label" Text="Обмен" />
-                    <TextBlock Classes="muted" Text="{Binding NetworkMessage}" />
+                    <TextBlock Classes="muted" Text="{Binding NetworkMessage}" TextWrapping="Wrap" />
                 </StackPanel>
+                <ToggleSwitch
+                    Grid.Column="1"
+                    IsChecked="{Binding IsExchangeEnabled, Mode=TwoWay}"
+                    OffContent=""
+                    OnContent="" />
             </Grid>
         </Border>
-        <TextBlock Classes="muted" Text="Для изменения имени и порта завершите текущую сессию." />
+        <Button
+            Command="{Binding StartSearchCommand}"
+            Content="Запустить сессию"
+            IsVisible="{Binding !StartSearchCommand.IsRunning}" />
+        <Button
+            Command="{Binding StartSearchCancelCommand}"
+            Content="Остановить сессию для изменения имени или порта"
+            IsVisible="{Binding StartSearchCommand.IsRunning}" />
+        <TextBlock Classes="muted" Text="Для изменения имени или порта остановите сессию. Настройки сети применяются сразу; сохраните их для следующего запуска."
+            TextWrapping="Wrap" />
         <TextBlock
             Margin="0,8,0,0"
             Classes="label"
@@ -51,17 +65,19 @@
         <Border Classes="card">
             <StackPanel Spacing="10">
                 <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Classes="label" Text="Потеря пакетов" />
+                    <TextBlock Classes="label" Text="Потери пакетов при отправке и приёме" />
                     <TextBlock
                         Grid.Column="1"
                         Foreground="#3869ED"
-                        Text="0%" />
+                        Text="{Binding LossRate, StringFormat='{}{0}%'}" />
                 </Grid>
                 <Slider
-                    IsEnabled="False"
+                    IsEnabled="{Binding !IsConnectionBroken}"
+                    IsSnapToTickEnabled="True"
+                    TickFrequency="1"
                     Maximum="100"
                     Minimum="0"
-                    Value="0" />
+                    Value="{Binding LossRate, Mode=TwoWay}" />
                 <Grid ColumnDefinitions="*,*">
                     <TextBlock Classes="muted" Text="0%" />
                     <TextBlock
@@ -76,11 +92,12 @@
             <Grid ColumnDefinitions="*,Auto">
                 <StackPanel Spacing="5">
                     <TextBlock Classes="label" Text="Обрыв связи" />
-                    <TextBlock Classes="muted" Text="Устанавливает потерю пакетов на 100%" />
+                    <TextBlock Classes="muted" Text="Устанавливает потери пакетов на 100%. При выключении возвращает прежнее значение."
+                        TextWrapping="Wrap" />
                 </StackPanel>
                 <ToggleSwitch
                     Grid.Column="1"
-                    IsEnabled="False"
+                    IsChecked="{Binding IsConnectionBroken, Mode=TwoWay}"
                     OffContent=""
                     OnContent="" />
             </Grid>

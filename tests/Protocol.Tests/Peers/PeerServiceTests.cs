@@ -275,6 +275,7 @@ public class PeerServiceTests
     [Theory]
     [InlineData(0)]
     [InlineData(2500)]
+    [InlineData(21 * 1024 * 1024)]
     public async Task OfferFileAsync_CompletesTransfer_AndSavesMatchingFile(int size)
     {
         string directory = Path.Combine(Path.GetTempPath(), $"protocol-peers-{Guid.NewGuid():N}");
@@ -287,7 +288,7 @@ public class PeerServiceTests
             await using var sender = new PeerService("Sender", 0);
             await using var receiver = new PeerService("Receiver", 0);
             sender.AddManualEndpoint(new IPEndPoint(IPAddress.Loopback, receiver.LocalPort));
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
             var offered = new TaskCompletionSource<FileTransfer>(
                 TaskCreationOptions.RunContinuationsAsynchronously
             );
