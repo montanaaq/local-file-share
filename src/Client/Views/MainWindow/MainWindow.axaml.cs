@@ -149,7 +149,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (vm.SelectFile(path))
+        if (vm.FileTransfers.SelectFile(path))
         {
             e.DragEffects = DragDropEffects.Copy;
         }

@@ -16,7 +16,7 @@
                 <TextBox
                     IsEnabled="{Binding !StartSearchCommand.IsRunning}"
                     PlaceholderText="Имя устройства"
-                    Text="{Binding ClientSettings.DeviceName, Mode=TwoWay}" />
+                    Text="{Binding Settings.ClientSettings.DeviceName, Mode=TwoWay}" />
             </StackPanel>
         </Border>
         <Border Classes="card">
@@ -26,15 +26,15 @@
                     IsEnabled="{Binding !StartSearchCommand.IsRunning}"
                     Maximum="65535"
                     Minimum="1"
-                    Value="{Binding ClientSettings.LocalPort, Mode=TwoWay}" />
+                    Value="{Binding Settings.ClientSettings.LocalPort, Mode=TwoWay}" />
             </StackPanel>
         </Border>
         <Button
             HorizontalAlignment="Stretch"
             Classes="primary"
-            Command="{Binding SaveSettingsCommand}"
+            Command="{Binding Settings.SaveSettingsCommand}"
             Content="Сохранить настройки" />
-        <TextBlock Classes="muted" Text="{Binding SettingsMessage}" />
+        <TextBlock Classes="muted" Text="{Binding Settings.SettingsMessage}" />
         <Border Classes="card">
             <Grid ColumnDefinitions="*,Auto">
                 <StackPanel Spacing="5">
@@ -43,7 +43,7 @@
                 </StackPanel>
                 <ToggleSwitch
                     Grid.Column="1"
-                    IsChecked="{Binding IsExchangeEnabled, Mode=TwoWay}"
+                    IsChecked="{Binding Settings.IsExchangeEnabled, Mode=TwoWay}"
                     OffContent=""
                     OnContent="" />
             </Grid>
@@ -69,15 +69,15 @@
                     <TextBlock
                         Grid.Column="1"
                         Foreground="#3869ED"
-                        Text="{Binding LossRate, StringFormat='{}{0}%'}" />
+                        Text="{Binding Settings.LossRate, StringFormat='{}{0}%'}" />
                 </Grid>
                 <Slider
-                    IsEnabled="{Binding !IsConnectionBroken}"
+                    IsEnabled="{Binding !Settings.IsConnectionBroken}"
                     IsSnapToTickEnabled="True"
                     TickFrequency="1"
                     Maximum="100"
                     Minimum="0"
-                    Value="{Binding LossRate, Mode=TwoWay}" />
+                    Value="{Binding Settings.LossRate, Mode=TwoWay}" />
                 <Grid ColumnDefinitions="*,*">
                     <TextBlock Classes="muted" Text="0%" />
                     <TextBlock
@@ -97,7 +97,7 @@
                 </StackPanel>
                 <ToggleSwitch
                     Grid.Column="1"
-                    IsChecked="{Binding IsConnectionBroken, Mode=TwoWay}"
+                    IsChecked="{Binding Settings.IsConnectionBroken, Mode=TwoWay}"
                     OffContent=""
                     OnContent="" />
             </Grid>

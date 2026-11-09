@@ -165,7 +165,7 @@
                             <Button
                                 Padding="22"
                                 Classes="fileDrop"
-                                Command="{Binding ChooseFileCommand}"
+                                Command="{Binding FileTransfers.ChooseFileCommand}"
                                 HorizontalAlignment="Stretch"
                                 HorizontalContentAlignment="Center"
                                 AutomationProperties.Name="Выбрать файл или перетащить его сюда"
@@ -194,20 +194,20 @@
                                     <TextBlock
                                         HorizontalAlignment="Center"
                                         Classes="muted"
-                                        Text="{Binding FileSizeHint}"
+                                        Text="{Binding FileTransfers.FileSizeHint}"
                                         TextAlignment="Center" />
                                 </StackPanel>
                             </Button>
 
                             <TextBlock
                                 Classes="muted"
-                                Text="{Binding SelectedFilePath}"
+                                Text="{Binding FileTransfers.SelectedFilePath}"
                                 TextWrapping="Wrap" />
 
                             <Button
                                 HorizontalAlignment="Stretch"
                                 Classes="primary"
-                                Command="{Binding SendFileCommand}"
+                                Command="{Binding FileTransfers.SendFileCommand}"
                                 Content="Отправить файл" />
                             <TextBlock Classes="label" Text="Текст из буфера" />
                             <TextBox
@@ -215,27 +215,27 @@
                                 MaxHeight="220"
                                 AcceptsReturn="True"
                                 PlaceholderText="Вставьте или напишите текст…"
-                                Text="{Binding TextToSend, Mode=TwoWay}"
+                                Text="{Binding TextExchange.TextToSend, Mode=TwoWay}"
                                 TextWrapping="Wrap" />
                             <TextBlock
                                 HorizontalAlignment="Right"
                                 Classes="muted"
-                                Text="{Binding TextByteCount, StringFormat='Размер: {0} / 1000 байт'}" />
+                                Text="{Binding TextExchange.TextByteCount, StringFormat='Размер: {0} / 1000 байт'}" />
                             <TextBlock
                                 Foreground="#B42318"
-                                Text="{Binding TextValidationMessage}"
+                                Text="{Binding TextExchange.TextValidationMessage}"
                                 TextWrapping="Wrap" />
                             <Grid ColumnDefinitions="*,12,*">
                                 <Button
                                     HorizontalAlignment="Stretch"
                                     Classes="secondary"
-                                    Command="{Binding PasteTextCommand}"
+                                    Command="{Binding TextExchange.PasteTextCommand}"
                                     Content="Вставить текст" />
                                 <Button
                                     Grid.Column="2"
                                     HorizontalAlignment="Stretch"
                                     Classes="primary"
-                                    Command="{Binding SendTextCommand}"
+                                    Command="{Binding TextExchange.SendTextCommand}"
                                     Content="Отправить текст" />
                             </Grid>
                         </StackPanel>
@@ -245,16 +245,16 @@
                             Text="Входящие файлы" />
                         <TextBlock
                             Classes="muted"
-                            IsVisible="{Binding !HasIncomingFile}"
+                            IsVisible="{Binding !FileTransfers.HasIncomingFile}"
                             Text="Нет входящих предложений файлов." />
-                        <Border Classes="card" IsVisible="{Binding HasIncomingFile}">
+                        <Border Classes="card" IsVisible="{Binding FileTransfers.HasIncomingFile}">
                             <StackPanel Spacing="12">
                                 <TextBlock Classes="label" Text="Принять выбранный файл?" />
                                 <ListBox
                                     Background="Transparent"
                                     BorderThickness="0"
-                                    ItemsSource="{Binding IncomingFiles}"
-                                    SelectedItem="{Binding SelectedIncomingFile, Mode=TwoWay}">
+                                    ItemsSource="{Binding FileTransfers.IncomingFiles}"
+                                    SelectedItem="{Binding FileTransfers.SelectedIncomingFile, Mode=TwoWay}">
                                     <ListBox.ItemTemplate>
                                         <DataTemplate x:DataType="client:IncomingFileOffer">
                                             <StackPanel Spacing="6">
@@ -278,7 +278,7 @@
                                     <Button
                                         HorizontalAlignment="Stretch"
                                         Classes="secondary"
-                                        Command="{Binding AnswerIncomingFileCommand}"
+                                        Command="{Binding FileTransfers.AnswerIncomingFileCommand}"
                                         Content="Отказаться">
                                         <Button.CommandParameter>
                                             <x:Boolean>False</x:Boolean>
@@ -289,7 +289,7 @@
                                         Grid.Column="2"
                                         HorizontalAlignment="Stretch"
                                         Classes="primary"
-                                        Command="{Binding AnswerIncomingFileCommand}"
+                                        Command="{Binding FileTransfers.AnswerIncomingFileCommand}"
                                         Content="Принять">
                                         <Button.CommandParameter>
                                             <x:Boolean>True</x:Boolean>
@@ -301,9 +301,9 @@
                         <TextBlock Classes="label" Text="Полученный текст" />
                         <TextBlock
                             Classes="muted"
-                            Text="{Binding TextMessage}"
+                            Text="{Binding TextExchange.TextMessage}"
                             TextWrapping="Wrap" />
-                        <ItemsControl ItemsSource="{Binding ReceivedTexts}">
+                        <ItemsControl ItemsSource="{Binding TextExchange.ReceivedTexts}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="client:ReceivedText">
                                     <Border Margin="0,0,0,12" Classes="card">
@@ -313,7 +313,7 @@
                                             <Button
                                                 HorizontalAlignment="Right"
                                                 Classes="secondary"
-                                                Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).CopyReceivedTextCommand}"
+                                                Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).TextExchange.CopyReceivedTextCommand}"
                                                 CommandParameter="{Binding}"
                                                 Content="Копировать" />
                                         </StackPanel>

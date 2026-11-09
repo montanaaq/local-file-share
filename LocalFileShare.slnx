@@ -4,7 +4,6 @@
     <Project Path="src/Protocol/Protocol.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/Client.Tests/Client.Tests.csproj" />
     <Project Path="tests/Protocol.Tests/Protocol.Tests.csproj" />
   </Folder>
 </Solution>

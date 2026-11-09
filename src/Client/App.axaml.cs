@@ -22,10 +22,16 @@ public partial class App : Application
             var window = new MainWindow();
             window.DataContext = new MainViewModel(profile)
             {
-                PickReceiveDirectoryAsync = window.PickReceiveDirectoryAsync,
-                PickFileAsync = window.PickFileAsync,
-                ReadClipboardTextAsync = window.ReadClipboardTextAsync,
-                WriteClipboardTextAsync = window.WriteClipboardTextAsync,
+                FileTransfers =
+                {
+                    PickReceiveDirectoryAsync = window.PickReceiveDirectoryAsync,
+                    PickFileAsync = window.PickFileAsync,
+                },
+                TextExchange =
+                {
+                    ReadClipboardTextAsync = window.ReadClipboardTextAsync,
+                    WriteClipboardTextAsync = window.WriteClipboardTextAsync,
+                },
             };
             desktop.MainWindow = window;
         }
