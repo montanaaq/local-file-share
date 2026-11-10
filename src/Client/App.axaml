@@ -61,10 +61,6 @@
         <Style Selector="Ellipse.statusDot.available">
             <Setter Property="Fill" Value="#22865E" />
         </Style>
-        <Style Selector="TextBlock.statValue">
-            <Setter Property="FontSize" Value="22" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-        </Style>
         <Style Selector="Border.card">
             <Setter Property="Background" Value="#F5F7FA" />
             <Setter Property="CornerRadius" Value="{DynamicResource ControlCornerRadius}" />

@@ -1,17 +1,12 @@
 using System;
 using System.Net;
 using CommunityToolkit.Mvvm.ComponentModel;
-using Protocol;
+using Protocol.Peers;
 
 namespace Client;
 
-public partial class PeerItem : ObservableObject
+public partial class PeerItem(Peer snapshot) : ObservableObject
 {
-    public PeerItem(Peer snapshot)
-    {
-        Snapshot = snapshot;
-    }
-
     [ObservableProperty]
     [NotifyPropertyChangedFor(
         nameof(Name),
@@ -19,7 +14,7 @@ public partial class PeerItem : ObservableObject
         nameof(Availability),
         nameof(IsAvailable)
     )]
-    public partial Peer Snapshot { get; set; }
+    public partial Peer Snapshot { get; set; } = snapshot;
 
     public Guid DeviceId => Snapshot.DeviceId;
     public string Name => Snapshot.Name;

@@ -1,19 +1,25 @@
 using System;
 using System.Threading.Tasks;
+using Protocol.Transfers.Files;
 
-namespace Protocol;
+namespace Protocol.Transfers.Models;
 
 internal sealed class TransferEntry
 {
     public FileTransfer Transfer { get; }
+
     public TaskCompletionSource<bool>? Answer { get; set; }
     public TaskCompletionSource<bool>? Result { get; set; }
+
     public IncomingFileTransfer? IncomingFile { get; set; }
     public OutgoingFileTransfer? OutgoingFile { get; private set; }
     public Task<bool>? IncomingCompletion { get; set; }
+
     public bool? ReceivedResult { get; set; }
+
     public long LastActivity { get; set; }
     public long? LastProgressNotification { get; set; }
+
     public long? PauseStarted { get; set; }
     public bool Resuming { get; set; }
 
@@ -30,6 +36,7 @@ internal sealed class TransferEntry
     {
         Transfer = file.Transfer;
         OutgoingFile = file;
+
         Answer = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         Result = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
     }
@@ -60,6 +67,7 @@ internal sealed class TransferEntry
                 PauseStarted = timestamp;
                 Transfer.PauseCount++;
             }
+
             Resuming = false;
             Answer?.TrySetCanceled();
             Result?.TrySetCanceled();
@@ -73,7 +81,9 @@ internal sealed class TransferEntry
             {
                 Transfer.ResumeCount++;
             }
+
             LastActivity = timestamp;
+
             if (Transfer.Direction == TransferDirection.Outgoing)
             {
                 PauseStarted = null;
@@ -83,7 +93,9 @@ internal sealed class TransferEntry
         {
             PauseStarted = null;
         }
+
         Transfer.State = state;
+
         if (!IsFinal)
         {
             return null;
@@ -97,7 +109,9 @@ internal sealed class TransferEntry
         {
             Answer?.TrySetCanceled();
         }
+
         Result?.TrySetCanceled();
+
         var file = IncomingFile;
         IncomingFile = null;
 

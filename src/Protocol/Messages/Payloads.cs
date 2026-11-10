@@ -2,7 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.Text;
 
-namespace Protocol;
+namespace Protocol.Messages;
 
 public static class Payloads
 {
@@ -20,6 +20,7 @@ public static class Payloads
             buffer.AsSpan(PayloadsConstants.AckedSeqOffset),
             ackedSeq
         );
+
         return buffer;
     }
 
@@ -55,6 +56,7 @@ public static class Payloads
 
         BinaryPrimitives.WriteUInt32BigEndian(buffer.AsSpan(PayloadsConstants.IndexOffset), index);
         data.CopyTo(buffer.AsSpan(PayloadsConstants.ChunkDataOffset));
+
         return buffer;
     }
 
@@ -71,6 +73,7 @@ public static class Payloads
         }
 
         var (deviceId, fileId) = GetFileIds(payload);
+
         uint index = BinaryPrimitives.ReadUInt32BigEndian(payload[PayloadsConstants.IndexOffset..]);
         byte[] data = payload[PayloadsConstants.ChunkDataOffset..].ToArray();
 
@@ -144,6 +147,7 @@ public static class Payloads
         }
 
         byte nameLength = payload[PayloadsConstants.NameLengthOffset];
+
         if (nameLength == 0 || payload.Length != PayloadsConstants.NameOffset + nameLength)
         {
             return null;
@@ -152,12 +156,14 @@ public static class Payloads
         ulong size = BinaryPrimitives.ReadUInt64BigEndian(
             payload[PayloadsConstants.FileSizeOffset..]
         );
+
         if (size > ProtocolConstants.MaxFileSize)
         {
             return null;
         }
 
         string name;
+
         try
         {
             name = Utf8.GetString(payload.Slice(PayloadsConstants.NameOffset, nameLength));
@@ -168,6 +174,7 @@ public static class Payloads
         }
 
         var (deviceId, fileId) = GetFileIds(payload);
+
         byte[] sha256 = payload
             .Slice(PayloadsConstants.Sha256Offset, PayloadsConstants.Sha256Size)
             .ToArray();
@@ -196,6 +203,7 @@ public static class Payloads
     public static byte[] EncodePeerInfo(Guid deviceId, string name)
     {
         byte[] nameBytes = Utf8.GetBytes(name);
+
         if (nameBytes.Length is < 1 or > PayloadsConstants.MaxNameBytes)
         {
             throw new ArgumentException(
@@ -214,6 +222,7 @@ public static class Payloads
         );
 
         nameBytes.CopyTo(buffer, PayloadsConstants.PeerNameOffset);
+
         return buffer;
     }
 
@@ -225,12 +234,14 @@ public static class Payloads
         }
 
         byte nameLength = payload[PayloadsConstants.PeerNameLengthOffset];
+
         if (nameLength == 0 || payload.Length != PayloadsConstants.PeerNameOffset + nameLength)
         {
             return null;
         }
 
         string name;
+
         try
         {
             name = Utf8.GetString(payload.Slice(PayloadsConstants.PeerNameOffset, nameLength));
@@ -274,6 +285,7 @@ public static class Payloads
         }
 
         var (deviceId, fileId) = GetFileIds(payload);
+
         bool accepted = payload[PayloadsConstants.AcceptedOffset] == 1;
         uint nextIndex = BinaryPrimitives.ReadUInt32BigEndian(
             payload[PayloadsConstants.NextIndexOffset..]
@@ -286,6 +298,7 @@ public static class Payloads
     {
         byte[] buffer = new byte[PayloadsConstants.FileDoneSize];
         WriteFileIds(buffer, deviceId, fileId);
+
         return buffer;
     }
 
@@ -323,6 +336,7 @@ public static class Payloads
         }
 
         var (deviceId, fileId) = GetFileIds(payload);
+
         bool ok = payload[PayloadsConstants.OkOffset] == 1;
 
         return (deviceId, fileId, ok);
@@ -331,6 +345,7 @@ public static class Payloads
     public static byte[] EncodeClipboard(Guid deviceId, string text)
     {
         byte[] textBytes = Utf8.GetBytes(text);
+
         if (textBytes.Length > ProtocolConstants.ClipboardTextSize)
         {
             throw new ArgumentException(
@@ -338,6 +353,7 @@ public static class Payloads
                 nameof(text)
             );
         }
+
         byte[] buffer = new byte[PayloadsConstants.DeviceIdSize + textBytes.Length];
         deviceId.TryWriteBytes(buffer, bigEndian: true, out _);
         textBytes.CopyTo(buffer, PayloadsConstants.DeviceIdSize);
@@ -358,6 +374,7 @@ public static class Payloads
         var deviceId = new Guid(payload[..PayloadsConstants.DeviceIdSize], bigEndian: true);
 
         string text;
+
         try
         {
             text = Utf8.GetString(payload[PayloadsConstants.DeviceIdSize..]);

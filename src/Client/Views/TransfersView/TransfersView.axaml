@@ -7,7 +7,7 @@
     MinHeight="480"
     VerticalAlignment="Top"
     x:DataType="vm:MainViewModel">
-    <Grid RowDefinitions="Auto,*,Auto">
+    <Grid RowDefinitions="Auto,*">
         <TextBlock Classes="title" Text="Передачи" />
         <ScrollViewer
             Grid.Row="1"
@@ -37,7 +37,7 @@
 
                                 <TextBlock
                                     Classes="muted"
-                                    Text="{Binding Transfer.Error}"
+                                    Text="{Binding ErrorText}"
                                     TextWrapping="Wrap" />
                                 <StackPanel IsVisible="{Binding IsPaused}" Spacing="8">
                                     <TextBlock Classes="label" Text="{Binding PauseTimeText, StringFormat='До завершения ожидания: {0}'}" />
@@ -56,58 +56,5 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
         </ScrollViewer>
-        <StackPanel Grid.Row="2" Spacing="10">
-            <Button
-                HorizontalAlignment="Stretch"
-                Classes="secondary"
-                Command="{Binding ToggleDetailsCommand}"
-                Content="Подробности" />
-            <Border Classes="card" IsVisible="{Binding IsDetailsVisible}">
-                <StackPanel Spacing="12">
-                    <TextBlock Classes="label" Text="Текущая сессия" />
-                    <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto">
-                        <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4" Margin="0,0,8,12">
-                            <TextBlock Classes="muted" Text="Отправлено пакетов" />
-                            <TextBlock Classes="statValue" Text="{Binding Statistics.SentPackets}" />
-                        </StackPanel>
-                        <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4" Margin="0,0,8,12">
-                            <TextBlock Classes="muted" Text="Получено пакетов" />
-                            <TextBlock Classes="statValue" Text="{Binding Statistics.ReceivedPackets}" />
-                        </StackPanel>
-                        <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4" Margin="0,0,8,12">
-                            <TextBlock Classes="muted" Text="Отправлено ACK" />
-                            <TextBlock Classes="statValue" Text="{Binding Statistics.AcknowledgmentsSent}" />
-                        </StackPanel>
-                        <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4" Margin="0,0,8,12">
-                            <TextBlock Classes="muted" Text="Получено ACK" />
-                            <TextBlock Classes="statValue" Text="{Binding Statistics.AcknowledgmentsReceived}" />
-                        </StackPanel>
-                        <StackPanel Grid.Row="2" Grid.Column="0" Spacing="4" Margin="0,0,8,12">
-                            <TextBlock Classes="muted" Text="Повторы" />
-                            <TextBlock Classes="statValue" Text="{Binding Statistics.Retries}" />
-                        </StackPanel>
-                        <StackPanel Grid.Row="2" Grid.Column="1" Spacing="4" Margin="0,0,8,12">
-                            <TextBlock Classes="muted" Text="Паузы / возобновления" />
-                            <StackPanel Orientation="Horizontal" Spacing="5">
-                                <TextBlock Classes="statValue" Text="{Binding PauseCount}" />
-                                <TextBlock Classes="statValue" Text="/" />
-                                <TextBlock Classes="statValue" Text="{Binding ResumeCount}" />
-                            </StackPanel>
-                        </StackPanel>
-                        <StackPanel Grid.Row="3" Grid.Column="0" Spacing="4" Margin="0,0,8,12">
-                            <TextBlock Classes="muted" Text="Потери при отправке" />
-                            <TextBlock Classes="statValue" Text="{Binding Statistics.DroppedOutgoingPackets}" />
-                        </StackPanel>
-                        <StackPanel Grid.Row="3" Grid.Column="1" Spacing="4" Margin="0,0,8,12">
-                            <TextBlock Classes="muted" Text="Потери при приёме" />
-                            <TextBlock Classes="statValue" Text="{Binding Statistics.DroppedIncomingPackets}" />
-                        </StackPanel>
-                    </Grid>
-                    <TextBlock Classes="muted" Text="{Binding Statistics.Errors, StringFormat='Ошибки сети: {0}'}" />
-                    <TextBlock Classes="muted" Text="{Binding Statistics.InvalidPackets, StringFormat='Некорректные пакеты: {0}'}" />
-                    <TextBlock Classes="muted" Text="{Binding Statistics.QueueOverflows, StringFormat='Переполнения очереди: {0}'}" />
-                </StackPanel>
-            </Border>
-        </StackPanel>
     </Grid>
 </UserControl>

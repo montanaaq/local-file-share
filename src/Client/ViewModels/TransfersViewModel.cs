@@ -1,7 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
 using System.IO;
-using System.Linq;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,6 +8,8 @@ using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Protocol;
+using Protocol.Peers;
+using Protocol.Transfers.Models;
 
 namespace Client.ViewModels;
 
@@ -16,9 +17,9 @@ public partial class TransfersViewModel : ObservableObject
 {
     private PeerService? _peerService;
     private CancellationToken _sessionToken;
+
     private IDisposable? _pauseRefresh;
 
-    public Func<Task<string?>>? PickReceiveDirectoryAsync { get; set; }
     public Func<Task<string?>>? PickFileAsync { get; set; }
 
     [ObservableProperty]
@@ -37,19 +38,13 @@ public partial class TransfersViewModel : ObservableObject
     [ObservableProperty]
     public partial string NetworkMessage { get; set; } = string.Empty;
 
-    [ObservableProperty]
-    [NotifyCanExecuteChangedFor(
-        nameof(AcceptIncomingFileCommand),
-        nameof(RejectIncomingFileCommand)
-    )]
-    public partial bool IsAnsweringFile { get; set; }
-
-    public ObservableCollection<IncomingFileOffer> IncomingFiles { get; } = [];
     public ObservableCollection<TransferItem> Transfers { get; } = [];
-    public bool HasIncomingFile => IncomingFiles.Count > 0;
+
     public bool HasSelectedFile => SelectedFilePath is not null;
+
     public string SelectedFileName => Path.GetFileName(SelectedFilePath) ?? string.Empty;
     public string SelectedFileSizeText => SelectedFileSize.ToFileSize();
+
     public string FileSizeHint =>
         $"Выберите один файл до {ProtocolConstants.MaxFileSize / 1024 / 1024} МиБ";
 
@@ -62,24 +57,22 @@ public partial class TransfersViewModel : ObservableObject
     {
         _pauseRefresh?.Dispose();
         _pauseRefresh = null;
+
         if (_peerService is not null)
         {
-            _peerService.Transfers.FileOffered -= OnFileOffered;
-            _peerService.Transfers.TransferChanged -= OnIncomingTransferChanged;
             _peerService.Transfers.TransferChanged -= OnTransferChanged;
         }
 
         _peerService = service;
         _sessionToken = token;
-        IncomingFiles.Clear();
-        NotifyIncomingFilesChanged();
+
         if (service is not null)
         {
             Transfers.Clear();
             ClearSelectedFile();
-            service.Transfers.FileOffered += OnFileOffered;
-            service.Transfers.TransferChanged += OnIncomingTransferChanged;
+
             service.Transfers.TransferChanged += OnTransferChanged;
+
             _pauseRefresh = DispatcherTimer.Run(
                 RefreshPausedTransfers,
                 TimeSpan.FromSeconds(1),
@@ -88,8 +81,6 @@ public partial class TransfersViewModel : ObservableObject
         }
 
         SendFileCommand.NotifyCanExecuteChanged();
-        AcceptIncomingFileCommand.NotifyCanExecuteChanged();
-        RejectIncomingFileCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand]
@@ -97,13 +88,6 @@ public partial class TransfersViewModel : ObservableObject
     {
         SelectedFilePath = null;
         SelectedFileSize = 0;
-    }
-
-    private void NotifyIncomingFilesChanged()
-    {
-        OnPropertyChanged(nameof(HasIncomingFile));
-        AcceptIncomingFileCommand.NotifyCanExecuteChanged();
-        RejectIncomingFileCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand]
@@ -139,157 +123,6 @@ public partial class TransfersViewModel : ObservableObject
         }
     }
 
-    private bool CanAnswerIncomingFile(IncomingFileOffer? offer) =>
-        _peerService is not null
-        && _peerService.IsExchangeEnabled
-        && _peerService.LossRate < 100
-        && !_sessionToken.IsCancellationRequested
-        && !IsAnsweringFile
-        && offer is not null
-        && IncomingFiles.Contains(offer);
-
-    [RelayCommand(CanExecute = nameof(CanAnswerIncomingFile))]
-    private Task AcceptIncomingFileAsync(IncomingFileOffer? offer) =>
-        AnswerIncomingFileAsync(offer, true);
-
-    [RelayCommand(CanExecute = nameof(CanAnswerIncomingFile))]
-    private Task RejectIncomingFileAsync(IncomingFileOffer? offer) =>
-        AnswerIncomingFileAsync(offer, false);
-
-    /// <summary>
-    /// Передаёт решение по конкретному входящему файлу; при принятии запрашивает папку у окна.
-    /// </summary>
-    /// <param name="transfer">Предложение из карточки входящего файла.</param>
-    /// <param name="accepted">Принимает файл при true, отклоняет при false.</param>
-    private async Task AnswerIncomingFileAsync(IncomingFileOffer? transfer, bool accepted)
-    {
-        var service = _peerService;
-        var token = _sessionToken;
-        if (
-            service is null
-            || transfer is null
-            || token.IsCancellationRequested
-            || !IncomingFiles.Contains(transfer)
-        )
-        {
-            return;
-        }
-
-        IsAnsweringFile = true;
-        try
-        {
-            string directory = string.Empty;
-            if (accepted)
-            {
-                if (PickReceiveDirectoryAsync is null)
-                {
-                    NetworkMessage = "Выбор папки недоступен.";
-                    return;
-                }
-
-                string? selectedDirectory = await PickReceiveDirectoryAsync();
-                if (selectedDirectory is null)
-                {
-                    return;
-                }
-
-                directory = selectedDirectory;
-            }
-
-            token.ThrowIfCancellationRequested();
-            if (!ReferenceEquals(service, _peerService))
-            {
-                return;
-            }
-
-            if (!service.IsExchangeEnabled)
-            {
-                NetworkMessage = "Включите обмен, прежде чем принять или отклонить файл.";
-                return;
-            }
-
-            if (service.Transfers.GetTransfer(transfer.Key).State != TransferState.WaitingForAnswer)
-            {
-                IncomingFiles.Remove(transfer);
-                NotifyIncomingFilesChanged();
-                NetworkMessage =
-                    "Срок предложения файла истёк или его состояние изменилось. Попросите отправителя повторить отправку.";
-                return;
-            }
-
-            await service.AnswerFileOfferAsync(transfer.Key, accepted, directory, token);
-            IncomingFiles.Remove(transfer);
-            NotifyIncomingFilesChanged();
-
-            NetworkMessage = accepted
-                ? $"Файл «{transfer.FileName}» принят. Папка: {directory}"
-                : $"Файл «{transfer.FileName}» отклонён.";
-        }
-        catch (OperationCanceledException exception)
-            when (token.IsCancellationRequested
-                || exception.CancellationToken.IsCancellationRequested
-            )
-        {
-            NetworkMessage = "Сессия остановлена, решение по файлу прервано.";
-        }
-        catch (InvalidOperationException)
-            when (token.IsCancellationRequested
-                || !ReferenceEquals(service, _peerService)
-                || service.Transfers.GetTransfer(transfer.Key).State
-                    != TransferState.WaitingForAnswer
-            )
-        {
-            IncomingFiles.Remove(transfer);
-            NotifyIncomingFilesChanged();
-            NetworkMessage =
-                "Предложение файла больше не доступно. Попросите отправителя повторить отправку.";
-        }
-        catch (Exception exception)
-            when (exception
-                    is IOException
-                        or UnauthorizedAccessException
-                        or SocketException
-                        or TimeoutException
-            )
-        {
-            NetworkMessage = $"Не удалось передать решение по файлу: {exception.Message}";
-        }
-        finally
-        {
-            IsAnsweringFile = false;
-        }
-    }
-
-    private void OnIncomingTransferChanged(FileTransfer transfer)
-    {
-        if (
-            transfer.Direction != TransferDirection.Incoming
-            || transfer.State == TransferState.WaitingForAnswer
-        )
-        {
-            return;
-        }
-
-        var service = _peerService;
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (!ReferenceEquals(service, _peerService))
-            {
-                return;
-            }
-
-            for (int index = 0; index < IncomingFiles.Count; index++)
-            {
-                if (IncomingFiles[index].Key == transfer.Key)
-                {
-                    IncomingFiles.RemoveAt(index);
-                    NotifyIncomingFilesChanged();
-                    break;
-                }
-            }
-        });
-    }
-
     [RelayCommand]
     private async Task ChooseFileAsync()
     {
@@ -322,7 +155,7 @@ public partial class TransfersViewModel : ObservableObject
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            NetworkMessage = $"Не удалось открыть файл: {ex.Message}";
+            NetworkMessage = $"Не удалось открыть файл: {ex.ToUserMessage()}";
         }
     }
 
@@ -335,16 +168,9 @@ public partial class TransfersViewModel : ObservableObject
         try
         {
             var file = new FileInfo(path);
-            if (!file.Exists)
-            {
-                NetworkMessage = "Выберите существующий файл, а не папку.";
-                return false;
-            }
 
-            if (file.Length > ProtocolConstants.MaxFileSize)
+            if (!ValidateFile(file))
             {
-                NetworkMessage =
-                    $"Размер файла не должен превышать {ProtocolConstants.MaxFileSize / 1024 / 1024} МБ.";
                 return false;
             }
 
@@ -361,9 +187,27 @@ public partial class TransfersViewModel : ObservableObject
                         or NotSupportedException
             )
         {
-            NetworkMessage = $"Не удалось выбрать файл: {exception.Message}";
+            NetworkMessage = $"Не удалось выбрать файл: {exception.ToUserMessage()}";
             return false;
         }
+    }
+
+    private bool ValidateFile(FileInfo file)
+    {
+        if (!file.Exists)
+        {
+            NetworkMessage = "Выберите существующий файл, а не папку.";
+            return false;
+        }
+
+        if (file.Length > ProtocolConstants.MaxFileSize)
+        {
+            NetworkMessage =
+                $"Размер файла не должен превышать {ProtocolConstants.MaxFileSize / 1024 / 1024} МБ.";
+            return false;
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -376,24 +220,18 @@ public partial class TransfersViewModel : ObservableObject
         var recipient = Recipient;
         var token = _sessionToken;
         string? path = SelectedFilePath;
+
         if (service is null || recipient is null || path is null || !CanSendFile())
         {
             return;
         }
+
         try
         {
             var fileInfo = new FileInfo(path);
 
-            if (!fileInfo.Exists)
+            if (!ValidateFile(fileInfo))
             {
-                NetworkMessage = "Выбранный файл больше не существует";
-                return;
-            }
-
-            if (fileInfo.Length > ProtocolConstants.MaxFileSize)
-            {
-                NetworkMessage =
-                    $"Размер файла не должен превышать {ProtocolConstants.MaxFileSize / 1024 / 1024} МБ";
                 return;
             }
 
@@ -406,7 +244,7 @@ public partial class TransfersViewModel : ObservableObject
                 TransferState.Completed => "Файл успешно передан и сохранён получателем.",
                 TransferState.Rejected => "Получатель отказался от файла.",
                 TransferState.Paused => "Передача приостановлена. Ожидается восстановление связи.",
-                TransferState.Failed => $"Ошибка передачи: {transfer.Error}",
+                TransferState.Failed => transfer.ErrorCode.ToUserMessage(),
                 TransferState.Cancelled => "Передача отменена.",
                 _ => "Операция отправки завершилась. Состояние передачи изменилось.",
             };
@@ -428,50 +266,8 @@ public partial class TransfersViewModel : ObservableObject
                         or TimeoutException
             )
         {
-            NetworkMessage = $"Не удалось отправить файл: {ex.Message}";
+            NetworkMessage = $"Не удалось отправить файл: {ex.ToUserMessage()}";
         }
-    }
-
-    private void OnFileOffered(FileTransfer transfer)
-    {
-        OnTransferChanged(transfer);
-
-        var service = _peerService;
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (
-                service is null
-                || !ReferenceEquals(service, _peerService)
-                || service.Transfers.GetTransfer(transfer.Key).State
-                    != TransferState.WaitingForAnswer
-            )
-            {
-                return;
-            }
-
-            foreach (var existing in IncomingFiles)
-            {
-                if (existing.Key == transfer.Key)
-                {
-                    return;
-                }
-            }
-
-            string senderName =
-                service
-                    .GetPeers()
-                    .FirstOrDefault(peer => peer.DeviceId == transfer.PeerDeviceId)
-                    ?.Name
-                ?? "Неизвестное устройство";
-            var offer = new IncomingFileOffer(
-                transfer.Key,
-                transfer.FileName,
-                transfer.FileSize,
-                senderName
-            );
-            IncomingFiles.Add(offer);
-            NotifyIncomingFilesChanged();
-        });
     }
 
     private void OnTransferChanged(FileTransfer transfer)

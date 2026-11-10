@@ -2,7 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.IO.Hashing;
 
-namespace Protocol;
+namespace Protocol.Messages;
 
 public sealed record Packet(MessageType Type, uint Seq, byte[] Payload)
 {

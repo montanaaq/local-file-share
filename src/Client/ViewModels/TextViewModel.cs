@@ -11,6 +11,7 @@ using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Protocol;
+using Protocol.Peers;
 
 namespace Client.ViewModels;
 
@@ -55,6 +56,7 @@ public partial class TextViewModel : ObservableObject
 
         _peerService = service;
         _sessionToken = token;
+
         _peerService?.TextReceived += OnTextReceived;
 
         SendTextCommand.NotifyCanExecuteChanged();
@@ -72,6 +74,7 @@ public partial class TextViewModel : ObservableObject
         try
         {
             string? text = await ReadClipboardTextAsync();
+
             if (string.IsNullOrEmpty(text))
             {
                 TextMessage = "В буфере обмена нет текста.";
@@ -113,6 +116,7 @@ public partial class TextViewModel : ObservableObject
         var recipient = Recipient;
         var token = _sessionToken;
         string text = TextToSend;
+
         if (service is null || recipient is null || !CanSendText())
         {
             return;
@@ -141,6 +145,7 @@ public partial class TextViewModel : ObservableObject
     private void OnTextReceived(Guid senderDeviceId, string text)
     {
         var service = _peerService;
+
         if (service is null)
         {
             return;
@@ -149,6 +154,7 @@ public partial class TextViewModel : ObservableObject
         string name =
             service.GetPeers().FirstOrDefault(peer => peer.DeviceId == senderDeviceId)?.Name
             ?? "Неизвестное устройство";
+
         Dispatcher.UIThread.Post(() =>
         {
             if (ReferenceEquals(service, _peerService))

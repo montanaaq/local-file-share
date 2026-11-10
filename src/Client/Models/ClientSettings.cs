@@ -1,6 +1,7 @@
 using System;
 using System.Text;
 using Protocol;
+using Protocol.Messages;
 
 namespace Client;
 
@@ -14,7 +15,9 @@ public sealed class ClientSettings
     public void Validate()
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(DeviceName);
+
         var utf8 = new UTF8Encoding(false, true);
+
         if (utf8.GetByteCount(DeviceName) > PayloadsConstants.MaxNameBytes)
         {
             throw new ArgumentException(

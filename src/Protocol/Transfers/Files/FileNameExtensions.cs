@@ -1,8 +1,9 @@
 using System;
 using System.IO;
 using System.Text;
+using Protocol.Messages;
 
-namespace Protocol;
+namespace Protocol.Transfers.Files;
 
 internal static class FileNameExtensions
 {
@@ -17,6 +18,7 @@ internal static class FileNameExtensions
 
         char[] chars = fileName.ToCharArray();
         const string forbidden = "<>:\"/\\|?*";
+
         for (int index = 0; index < chars.Length; index++)
         {
             if (chars[index] <= '\u001f' || forbidden.Contains(chars[index]))
@@ -26,6 +28,7 @@ internal static class FileNameExtensions
         }
 
         string name = new string(chars).Trim(' ', '.');
+
         if (name.Length == 0)
         {
             return "file";

@@ -5,22 +5,32 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using Protocol.Exchange;
+using Protocol.Extensions;
+using Protocol.Messages;
+using Protocol.Transfers;
+using Protocol.Transfers.Models;
+using Protocol.Transport;
 
-namespace Protocol;
+namespace Protocol.Peers;
 
 public sealed class PeerService : IAsyncDisposable
 {
     private readonly UdpTransport _transport;
     private readonly byte[] _peerInfoPayload;
+
     private readonly Lock _stateLock = new();
     private readonly Dictionary<Guid, (Peer Peer, long LastSeen)> _peers = [];
     private readonly HashSet<IPEndPoint> _manualEndpoints = [];
+
     private readonly CancellationTokenSource _stopCts = new();
     private Task? _runTask;
     private bool _disposed;
+
     private readonly ExchangeService _exchange;
     private readonly NotificationDispatcher _notifications;
     private readonly TimeProvider _timeProvider;
+
     private Task? _disposeTask;
 
     /// <summary>
@@ -41,9 +51,11 @@ public sealed class PeerService : IAsyncDisposable
     {
         DeviceId = deviceId ?? Guid.NewGuid();
         _peerInfoPayload = Payloads.EncodePeerInfo(DeviceId, name);
+
         _transport = new UdpTransport(localPort, initialSeq);
         _timeProvider = timeProvider ?? TimeProvider.System;
         _notifications = new NotificationDispatcher();
+
         _exchange = new ExchangeService(
             _transport,
             DeviceId,
@@ -58,6 +70,7 @@ public sealed class PeerService : IAsyncDisposable
     public Guid DeviceId { get; }
     public int LocalPort => _transport.LocalPort;
     public uint NextSequence => _transport.NextSequence;
+
     public int LossRate
     {
         get => _transport.LossRate;
@@ -102,6 +115,7 @@ public sealed class PeerService : IAsyncDisposable
     public Task SendTextAsync(Guid peerDeviceId, string text, CancellationToken ct)
     {
         ThrowIfDisposed();
+
         return _exchange.SendTextAsync(peerDeviceId, text, ct);
     }
 
@@ -114,6 +128,7 @@ public sealed class PeerService : IAsyncDisposable
 
     public event Action<Peer>? PeerChanged;
     private event Action<IPEndPoint, SocketException>? NetworkErrorHandlers;
+
     public event Action<IPEndPoint, SocketException>? NetworkError
     {
         add
@@ -127,6 +142,7 @@ public sealed class PeerService : IAsyncDisposable
             _exchange.NetworkError -= value;
         }
     }
+
     public event Action<FileTransfer, Exception>? FileResultDeliveryFailed
     {
         add => _exchange.FileResultDeliveryFailed += value;
@@ -230,6 +246,7 @@ public sealed class PeerService : IAsyncDisposable
         var receiving = ReceiveLoopAsync(cts.Token);
         var monitoring = MonitorAsync(cts.Token);
         var maintaining = _exchange.MaintainAsync(cts.Token);
+
         try
         {
             var completed = await Task.WhenAny(receiving, monitoring, maintaining)
@@ -240,6 +257,7 @@ public sealed class PeerService : IAsyncDisposable
         {
             cts.Cancel();
             _stopCts.Cancel();
+
             try
             {
                 await Task.WhenAll(receiving, monitoring, maintaining).ConfigureAwait(false);
@@ -261,19 +279,23 @@ public sealed class PeerService : IAsyncDisposable
         while (true)
         {
             var (packet, from) = await _transport.ReceiveAsync(ct).ConfigureAwait(false);
+
             if (!IsExchangeEnabled)
             {
                 continue;
             }
+
             if (packet.Type is MessageType.Discover or MessageType.PeerInfo)
             {
                 var info = Payloads.DecodePeerInfo(packet.Payload);
+
                 if (info is null || info.Value.DeviceId == DeviceId)
                 {
                     continue;
                 }
 
                 UpdatePeer(info.Value.DeviceId, info.Value.Name, from);
+
                 if (packet.Type is MessageType.Discover)
                 {
                     if (_exchange.TryGetExchangeToken(out var exchangeToken))
@@ -300,6 +322,7 @@ public sealed class PeerService : IAsyncDisposable
                 packet.Payload.AsSpan(0, PayloadsConstants.DeviceIdSize),
                 bigEndian: true
             );
+
             if (senderDeviceId == DeviceId || !RefreshPeer(senderDeviceId, from))
             {
                 continue;
@@ -334,7 +357,9 @@ public sealed class PeerService : IAsyncDisposable
             _timeProvider.GetUtcNow(),
             PeerAvailability.Available
         );
+
         bool changed;
+
         lock (_stateLock)
         {
             changed =
@@ -354,7 +379,9 @@ public sealed class PeerService : IAsyncDisposable
     private bool RefreshPeer(Guid deviceId, IPEndPoint endpoint)
     {
         Peer updated;
+
         bool changed;
+
         lock (_stateLock)
         {
             if (
@@ -373,10 +400,12 @@ public sealed class PeerService : IAsyncDisposable
             };
             _peers[deviceId] = (updated, _timeProvider.GetTimestamp());
         }
+
         if (changed)
         {
             _notifications.Post(PeerChanged, handler => handler(updated));
         }
+
         return true;
     }
 
@@ -384,6 +413,7 @@ public sealed class PeerService : IAsyncDisposable
     {
         using var timer = new PeriodicTimer(ProtocolConstants.Heartbeat);
         long? lastDiscover = null;
+
         do
         {
             ct.ThrowIfCancellationRequested();
@@ -398,6 +428,7 @@ public sealed class PeerService : IAsyncDisposable
             }
 
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, exchangeToken);
+
             try
             {
                 if (
@@ -415,6 +446,7 @@ public sealed class PeerService : IAsyncDisposable
                     .Where(transfer => transfer.State == TransferState.Paused)
                     .Select(transfer => transfer.PeerDeviceId)
                     .ToHashSet();
+
                 var peers = GetPeers()
                     .Where(peer =>
                         peer.Availability != PeerAvailability.Offline
@@ -431,6 +463,7 @@ public sealed class PeerService : IAsyncDisposable
     private async Task DiscoverAsync(CancellationToken ct)
     {
         HashSet<IPEndPoint> endpoints;
+
         lock (_stateLock)
         {
             endpoints = [.. _manualEndpoints];
@@ -452,6 +485,7 @@ public sealed class PeerService : IAsyncDisposable
     )
     {
         var packet = new Packet(type, _transport.NextSeq(), _peerInfoPayload);
+
         try
         {
             await _transport.SendAsync(packet, endpoint, ct).ConfigureAwait(false);
@@ -494,6 +528,7 @@ public sealed class PeerService : IAsyncDisposable
     private void UpdateAvailability(long now)
     {
         List<Peer> changed = [];
+
         lock (_stateLock)
         {
             foreach (var (deviceId, entry) in _peers.ToArray())
@@ -519,6 +554,7 @@ public sealed class PeerService : IAsyncDisposable
                 changed.Add(updated);
             }
         }
+
         foreach (var peer in changed)
         {
             _notifications.Post(PeerChanged, handler => handler(peer));
@@ -542,6 +578,7 @@ public sealed class PeerService : IAsyncDisposable
                 _disposed = true;
                 _disposeTask = DisposeCoreAsync();
             }
+
             return new ValueTask(_disposeTask);
         }
     }
@@ -549,6 +586,7 @@ public sealed class PeerService : IAsyncDisposable
     private async Task DisposeCoreAsync()
     {
         _stopCts.Cancel();
+
         try
         {
             if (_runTask is not null)

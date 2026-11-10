@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Protocol;
+namespace Protocol.Extensions;
 
 internal static class TaskExtensions
 {

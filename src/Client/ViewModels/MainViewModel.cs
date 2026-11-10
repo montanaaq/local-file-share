@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Protocol;
+using Protocol.Peers;
 
 namespace Client.ViewModels;
 
@@ -24,6 +24,7 @@ public partial class MainViewModel : ObservableObject
     public SettingsViewModel Settings { get; }
     public TextViewModel TextExchange { get; } = new();
     public TransfersViewModel FileTransfers { get; } = new();
+    public IncomingFilesViewModel IncomingFiles { get; } = new();
 
     [ObservableProperty]
     public partial string NetworkMessage { get; set; } = "Обмен не запущен";
@@ -36,18 +37,6 @@ public partial class MainViewModel : ObservableObject
     public partial string ManualAddressError { get; set; } = string.Empty;
 
     partial void OnManualAddressChanged(string value) => ManualAddressError = string.Empty;
-
-    [ObservableProperty]
-    public partial bool IsDetailsVisible { get; set; }
-
-    [ObservableProperty]
-    public partial TransportStatistics Statistics { get; set; } = new(0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-
-    [ObservableProperty]
-    public partial int PauseCount { get; set; }
-
-    [ObservableProperty]
-    public partial int ResumeCount { get; set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsHome))]
@@ -68,15 +57,19 @@ public partial class MainViewModel : ObservableObject
     }
 
     public ObservableCollection<PeerItem> Devices { get; } = [];
+
     public bool HasManualAddressError => ManualAddressError.Length > 0;
     public bool HasRecipientMessage => RecipientMessage.Length > 0;
+
     public bool IsNetworkActive => _peerService is { IsExchangeEnabled: true };
     public bool IsConnectionInterrupted => IsNetworkActive && Settings.LossRate == 100;
+
     public string SessionStatus =>
         _peerService is null ? "Сессия остановлена"
         : !IsNetworkActive ? "Обмен выключен"
         : IsConnectionInterrupted ? "Имитация обрыва"
         : "Обмен включён";
+
     public string RecipientMessage =>
         SelectedDevice is null ? string.Empty
         : !IsNetworkActive ? "Включите обмен, чтобы отправить файл или текст."
@@ -85,9 +78,11 @@ public partial class MainViewModel : ObservableObject
         : !SelectedDevice.IsAvailable
             ? "Нет связи с получателем. Отправка станет доступна после его обнаружения."
         : string.Empty;
+
     public bool IsHome => SelectedPage == 0;
     public bool IsTransfers => SelectedPage == 1;
     public bool IsSettings => SelectedPage == 2;
+
     public bool HasDevices => Devices.Count > 0;
     public bool HasSelectedDevice => SelectedDevice is not null;
 
@@ -97,15 +92,22 @@ public partial class MainViewModel : ObservableObject
     public MainViewModel(string profile)
     {
         Settings = new SettingsViewModel(profile);
+
         Settings.PropertyChanged += OnNetworkSettingsChanged;
         FileTransfers.PropertyChanged += OnTransferMessageChanged;
+        IncomingFiles.PropertyChanged += OnTransferMessageChanged;
     }
 
     private void OnTransferMessageChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(TransfersViewModel.NetworkMessage))
         {
-            NetworkMessage = FileTransfers.NetworkMessage;
+            NetworkMessage = sender switch
+            {
+                TransfersViewModel transfers => transfers.NetworkMessage,
+                IncomingFilesViewModel incoming => incoming.NetworkMessage,
+                _ => NetworkMessage,
+            };
         }
     }
 
@@ -117,6 +119,7 @@ public partial class MainViewModel : ObservableObject
             {
                 service.LossRate = Settings.LossRate;
             }
+
             RefreshNetworkState();
         }
         else if (e.PropertyName == nameof(SettingsViewModel.IsExchangeEnabled))
@@ -125,6 +128,7 @@ public partial class MainViewModel : ObservableObject
             {
                 service.SetExchangeEnabled(Settings.IsExchangeEnabled);
             }
+
             RefreshNetworkState();
             NetworkMessage = Settings.IsExchangeEnabled
                 ? "Обмен включён."
@@ -139,10 +143,11 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(SessionStatus));
         OnPropertyChanged(nameof(RecipientMessage));
         OnPropertyChanged(nameof(HasRecipientMessage));
+
         FileTransfers.SendFileCommand.NotifyCanExecuteChanged();
         TextExchange.SendTextCommand.NotifyCanExecuteChanged();
-        FileTransfers.AcceptIncomingFileCommand.NotifyCanExecuteChanged();
-        FileTransfers.RejectIncomingFileCommand.NotifyCanExecuteChanged();
+        IncomingFiles.AcceptIncomingFileCommand.NotifyCanExecuteChanged();
+        IncomingFiles.RejectIncomingFileCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand]
@@ -162,6 +167,7 @@ public partial class MainViewModel : ObservableObject
         }
 
         _manualEndpoints.Add(endpoint);
+
         if (_peerService is { } service && !StartSearchCommand.IsCancellationRequested)
         {
             service.AddManualEndpoint(endpoint);
@@ -171,25 +177,8 @@ public partial class MainViewModel : ObservableObject
         {
             NetworkMessage = $"Адрес {endpoint} сохранён до запуска сессии.";
         }
+
         ManualAddress = string.Empty;
-    }
-
-    [RelayCommand]
-    private void ToggleDetails() => IsDetailsVisible = !IsDetailsVisible;
-
-    private bool RefreshStatistics()
-    {
-        var service = _peerService;
-        if (service is null)
-        {
-            return false;
-        }
-
-        Statistics = service.GetStatistics();
-        var transfers = service.Transfers.GetTransfers();
-        PauseCount = transfers.Sum(transfer => transfer.PauseCount);
-        ResumeCount = transfers.Sum(transfer => transfer.ResumeCount);
-        return true;
     }
 
     public async Task StopAsync()
@@ -203,7 +192,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Открывает сетевую сессию с сохранёнными deviceId и seq, подключает модели UI и обновление статистики.
+    /// Открывает сетевую сессию с сохранёнными deviceId и seq, подключает модели UI.
     /// При остановке освобождает подписки и сохраняет следующий seq для повторного запуска.
     /// </summary>
     /// <param name="ct">Токен остановки сетевой сессии и её фоновых операций.</param>
@@ -252,23 +241,20 @@ public partial class MainViewModel : ObservableObject
             {
                 TextExchange.SetSession(peerService, ct);
                 FileTransfers.SetSession(peerService, ct);
-                RefreshStatistics();
-                using var statisticsRefresh = DispatcherTimer.Run(
-                    RefreshStatistics,
-                    TimeSpan.FromSeconds(1),
-                    DispatcherPriority.Background
-                );
+                IncomingFiles.SetSession(peerService, ct);
+
                 NetworkMessage = peerService.IsExchangeEnabled
                     ? $"Обмен запущен на порту {peerService.LocalPort}."
                     : $"Сессия запущена на порту {peerService.LocalPort}. Обмен выключен.";
+
                 await peerService.RunAsync(ct);
             }
             finally
             {
-                RefreshStatistics();
                 peerService.PeerChanged -= peerChanged;
                 TextExchange.SetSession(null, ct);
                 FileTransfers.SetSession(null, ct);
+                IncomingFiles.SetSession(null, ct);
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -277,7 +263,7 @@ public partial class MainViewModel : ObservableObject
         }
         catch (SocketException socketEx)
         {
-            NetworkMessage = $"Ошибка сети: {socketEx}";
+            NetworkMessage = socketEx.ToUserMessage();
         }
         finally
         {
@@ -285,11 +271,14 @@ public partial class MainViewModel : ObservableObject
             {
                 _nextSeq = _peerService.NextSequence;
             }
+
             _peerService = null;
+
             foreach (var device in Devices)
             {
                 device.Snapshot = device.Snapshot with { Availability = PeerAvailability.Offline };
             }
+
             RefreshNetworkState();
             SelectedDevice = null;
         }
@@ -303,11 +292,13 @@ public partial class MainViewModel : ObservableObject
             {
                 return;
             }
+
             for (int i = 0; i < Devices.Count; i++)
             {
                 if (Devices[i].DeviceId == peer.DeviceId)
                 {
                     Devices[i].Snapshot = peer;
+
                     if (SelectedDevice?.DeviceId == peer.DeviceId)
                     {
                         TextExchange.SendTextCommand.NotifyCanExecuteChanged();
@@ -315,6 +306,7 @@ public partial class MainViewModel : ObservableObject
                         OnPropertyChanged(nameof(RecipientMessage));
                         OnPropertyChanged(nameof(HasRecipientMessage));
                     }
+
                     return;
                 }
             }

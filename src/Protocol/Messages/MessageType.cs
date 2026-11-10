@@ -1,4 +1,4 @@
-namespace Protocol;
+namespace Protocol.Messages;
 
 public enum MessageType
 {

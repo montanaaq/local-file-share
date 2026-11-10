@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Protocol;
+namespace Protocol.Transport;
 
 public sealed class ProcessedMessages
 {
@@ -16,12 +16,14 @@ public sealed class ProcessedMessages
     public void Add(Guid deviceId, uint seq)
     {
         var key = (deviceId, seq);
+
         if (!_messages.Add(key))
         {
             return;
         }
 
         _order.Enqueue(key);
+
         if (_order.Count > ProtocolConstants.ProcessedMessagesCapacity)
         {
             var oldest = _order.Dequeue();

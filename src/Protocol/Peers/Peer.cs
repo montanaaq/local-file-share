@@ -1,7 +1,7 @@
 using System;
 using System.Net;
 
-namespace Protocol;
+namespace Protocol.Peers;
 
 public sealed record Peer(
     Guid DeviceId,

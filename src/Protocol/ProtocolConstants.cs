@@ -8,19 +8,24 @@ public static class ProtocolConstants
     public const int ChunkSize = 1024;
     public const int ClipboardTextSize = 1000;
     public const long MaxFileSize = 1024L * 1024 * 1024;
+
     public static readonly TimeSpan AckTimeout = TimeSpan.FromMilliseconds(200);
     public const int MaxSendAttempts = 5;
     public const int IncomingQueueCapacity = 256;
+
     public static readonly TimeSpan Heartbeat = TimeSpan.FromSeconds(1);
     public static readonly TimeSpan PeerTimeout = TimeSpan.FromSeconds(5);
     public static readonly TimeSpan DiscoverInterval = TimeSpan.FromSeconds(2);
     public static readonly TimeSpan ConnectionTimeout = TimeSpan.FromSeconds(3);
+
     public static readonly TimeSpan FileAnswerTimeout = TimeSpan.FromSeconds(60);
     public static readonly TimeSpan FileResultTimeout = TimeSpan.FromSeconds(30);
     public static readonly TimeSpan IncomingChunkTimeout = TimeSpan.FromSeconds(10);
     public static readonly TimeSpan PauseTimeout = TimeSpan.FromSeconds(120);
     public static readonly TimeSpan ProbeInterval = TimeSpan.FromSeconds(2);
+
     public static readonly TimeSpan MaintenanceInterval = TimeSpan.FromMilliseconds(100);
     public static readonly TimeSpan ProgressNotificationInterval = TimeSpan.FromMilliseconds(100);
+
     public const int ProcessedMessagesCapacity = 256;
 }

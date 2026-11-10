@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using Protocol.Messages;
 
 namespace Protocol.Tests;
 
@@ -16,6 +17,7 @@ public class PayloadsTests
             new byte[32],
             "фото.jpg"
         );
+
         var decoded = Payloads.DecodeFileOffer(encoded);
 
         Assert.NotNull(decoded);
@@ -35,6 +37,7 @@ public class PayloadsTests
                 "a.txt"
             )
         );
+
         byte[] encoded = Payloads.EncodeFileOffer(
             Guid.NewGuid(),
             Guid.NewGuid(),

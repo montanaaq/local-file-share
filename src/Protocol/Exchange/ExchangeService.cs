@@ -5,8 +5,13 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using Protocol.Extensions;
+using Protocol.Messages;
+using Protocol.Transfers;
+using Protocol.Transfers.Models;
+using Protocol.Transport;
 
-namespace Protocol;
+namespace Protocol.Exchange;
 
 internal sealed class ExchangeService : IAsyncDisposable
 {
@@ -16,12 +21,15 @@ internal sealed class ExchangeService : IAsyncDisposable
     private readonly Action<Guid, IPEndPoint> _acknowledged;
     private readonly NotificationDispatcher _notifications;
     private readonly FileExchange _files;
+
     private readonly Lock _stateLock = new();
     private readonly ProcessedMessages _processedTexts = new();
     private readonly HashSet<Task> _textCompletions = [];
+
     private readonly List<CancellationTokenSource> _retiredExchangeSources = [];
     private readonly CancellationTokenSource _stopCts;
     private CancellationTokenSource _exchangeCts;
+
     private Task? _disposeTask;
     private bool _disposed;
 
@@ -40,8 +48,10 @@ internal sealed class ExchangeService : IAsyncDisposable
         _resolveEndpoint = resolveEndpoint;
         _acknowledged = acknowledged;
         _notifications = notifications;
+
         _stopCts = CancellationTokenSource.CreateLinkedTokenSource(stopping);
         _exchangeCts = CancellationTokenSource.CreateLinkedTokenSource(_stopCts.Token);
+
         _files = new FileExchange(
             transport,
             deviceId,
@@ -61,6 +71,7 @@ internal sealed class ExchangeService : IAsyncDisposable
 
     public event Action<Guid, string>? TextReceived;
     private event Action<IPEndPoint, SocketException>? NetworkErrorHandlers;
+
     public event Action<IPEndPoint, SocketException>? NetworkError
     {
         add
@@ -91,6 +102,7 @@ internal sealed class ExchangeService : IAsyncDisposable
         lock (_stateLock)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+
             if (IsExchangeEnabled == enabled)
             {
                 return;
@@ -145,16 +157,20 @@ internal sealed class ExchangeService : IAsyncDisposable
     public Task SendTextAsync(Guid peerDeviceId, string text, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
+
         byte[] payload = Payloads.EncodeClipboard(_deviceId, text);
+
         lock (_stateLock)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+
             if (!IsExchangeEnabled)
             {
                 throw new InvalidOperationException("Network exchange is disabled");
             }
 
             CancellationToken exchangeToken = _exchangeCts.Token;
+
             var operation = Task.Run(
                 async () =>
                 {
@@ -162,6 +178,7 @@ internal sealed class ExchangeService : IAsyncDisposable
                         ct,
                         exchangeToken
                     );
+
                     var endpoint = _resolveEndpoint(peerDeviceId);
                     await _transport
                         .SendReliableAsync(
@@ -209,6 +226,7 @@ internal sealed class ExchangeService : IAsyncDisposable
             }
 
             var text = Payloads.DecodeClipboard(packet.Payload);
+
             if (text is null)
             {
                 return;
@@ -217,6 +235,7 @@ internal sealed class ExchangeService : IAsyncDisposable
             if (!_processedTexts.Contains(senderDeviceId, packet.Seq))
             {
                 _processedTexts.Add(senderDeviceId, packet.Seq);
+
                 string value = text.Value.Text;
                 _notifications.Post(TextReceived, handler => handler(senderDeviceId, value));
             }
@@ -239,9 +258,11 @@ internal sealed class ExchangeService : IAsyncDisposable
     public async Task MaintainAsync(CancellationToken ct)
     {
         using var timer = new PeriodicTimer(ProtocolConstants.MaintenanceInterval);
+
         do
         {
             ct.ThrowIfCancellationRequested();
+
             await _files.CheckCompletedOperationsAsync(ct).ConfigureAwait(false);
         } while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false));
     }
@@ -258,6 +279,7 @@ internal sealed class ExchangeService : IAsyncDisposable
                 _disposed = true;
                 _disposeTask = DisposeCoreAsync();
             }
+
             return new ValueTask(_disposeTask);
         }
     }
@@ -265,11 +287,14 @@ internal sealed class ExchangeService : IAsyncDisposable
     private async Task DisposeCoreAsync()
     {
         _stopCts.Cancel();
+
         Task[] texts;
+
         lock (_stateLock)
         {
             texts = _textCompletions.ToArray();
         }
+
         try
         {
             await Task.WhenAll(texts).ConfigureAwait(false);
@@ -278,10 +303,12 @@ internal sealed class ExchangeService : IAsyncDisposable
         finally
         {
             _exchangeCts.Dispose();
+
             foreach (var source in _retiredExchangeSources)
             {
                 source.Dispose();
             }
+
             _stopCts.Dispose();
         }
     }

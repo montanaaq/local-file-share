@@ -1,4 +1,4 @@
-using Protocol;
+using Protocol.Transfers.Models;
 
 namespace Client;
 

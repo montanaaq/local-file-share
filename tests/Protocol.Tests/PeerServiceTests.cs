@@ -1,5 +1,10 @@
 using System.Net;
 using System.Security.Cryptography;
+using Protocol.Extensions;
+using Protocol.Messages;
+using Protocol.Peers;
+using Protocol.Transfers.Models;
+using Protocol.Transport;
 
 namespace Protocol.Tests;
 
@@ -19,6 +24,7 @@ public class PeerServiceTests
         {
             await WaitForPeerAsync(first, second.DeviceId, PeerAvailability.Available, cts.Token);
             await WaitForPeerAsync(second, first.DeviceId, PeerAvailability.Available, cts.Token);
+
             var initial = GetPeer(first, second.DeviceId);
             Assert.Equal("Second", initial.Name);
             Assert.Equal(second.LocalPort, initial.Port);
@@ -44,15 +50,22 @@ public class PeerServiceTests
     }
 
     [Theory]
-    [InlineData(0, true)]
-    [InlineData(2500, true)]
-    [InlineData(21 * 1024 * 1024, true)]
-    [InlineData(2500, false)]
-    public async Task OfferFileAsync_SavesMatchingFileOrReportsRejection(int size, bool accepted)
+    [InlineData(0, true, false)]
+    [InlineData(2500, true, false)]
+    [InlineData(21 * 1024 * 1024, true, false)]
+    [InlineData(2500, false, false)]
+    [InlineData(2500, true, true)]
+    public async Task OfferFileAsync_SavesFileOrReportsRejectionOrSourceChange(
+        int size,
+        bool accepted,
+        bool changeSource
+    )
     {
         string directory = Path.Combine(Path.GetTempPath(), $"protocol-peers-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
+
         string path = Path.Combine(directory, "source.bin");
+
         try
         {
             byte[] data = Enumerable.Range(0, size).Select(index => (byte)index).ToArray();
@@ -65,8 +78,10 @@ public class PeerServiceTests
                 TaskCreationOptions.RunContinuationsAsynchronously
             );
             receiver.Transfers.FileOffered += transfer => offered.TrySetResult(transfer);
+
             var senderRun = sender.RunAsync(cts.Token);
             var receiverRun = receiver.RunAsync(cts.Token);
+
             try
             {
                 await WaitForPeerAsync(
@@ -75,15 +90,35 @@ public class PeerServiceTests
                     PeerAvailability.Available,
                     cts.Token
                 );
+
                 var sending = sender.OfferFileAsync(receiver.DeviceId, path, cts.Token);
                 var offer = await offered.Task.WaitAsync(cts.Token);
+
+                if (changeSource)
+                {
+                    await File.WriteAllBytesAsync(path, [9], cts.Token);
+                }
+
                 await receiver.AnswerFileOfferAsync(
                     new TransferKey(sender.DeviceId, offer.FileId),
                     accepted,
                     directory,
                     cts.Token
                 );
+
+                if (changeSource)
+                {
+                    await Assert.ThrowsAnyAsync<IOException>(() => sending.WaitAsync(cts.Token));
+                    var failed = sender.Transfers.GetTransfer(
+                        new TransferKey(receiver.DeviceId, offer.FileId)
+                    );
+                    Assert.Equal(TransferState.Failed, failed.State);
+                    Assert.Equal(TransferError.SourceFileChanged, failed.ErrorCode);
+                    return;
+                }
+
                 var transfer = await sending.WaitAsync(cts.Token);
+
                 if (!accepted)
                 {
                     Assert.Equal(TransferState.Rejected, transfer.State);
@@ -94,6 +129,7 @@ public class PeerServiceTests
                     Assert.Equal(new[] { path }, Directory.GetFiles(directory));
                     return;
                 }
+
                 uint expectedIndex = (uint)(
                     (size + ProtocolConstants.ChunkSize - 1) / ProtocolConstants.ChunkSize
                 );
@@ -111,6 +147,7 @@ public class PeerServiceTests
                         .Transfers.GetTransfer(new TransferKey(sender.DeviceId, offer.FileId))
                         .State
                 );
+
                 string savedPath = Assert.Single(
                     Directory.GetFiles(directory),
                     file => file != path
@@ -151,12 +188,15 @@ public class PeerServiceTests
         {
             Assert.Equal(remoteId, sender);
             Assert.Equal("Clipboard text", text);
+
             if (Interlocked.Increment(ref receivedCount) == 2)
             {
                 delivered.TrySetResult();
             }
         };
+
         var running = service.RunAsync(timeout.Token);
+
         try
         {
             await remote.SendAsync(
@@ -168,6 +208,7 @@ public class PeerServiceTests
                 endpoint
             );
             await WaitForPeerAsync(service, remoteId, PeerAvailability.Available, timeout.Token);
+
             var packet = new Packet(
                 MessageType.Clipboard,
                 remote.NextSeq(),
@@ -207,6 +248,7 @@ public class PeerServiceTests
             TaskCreationOptions.RunContinuationsAsynchronously
         );
         second.TextReceived += (_, text) => received.TrySetResult(text);
+
         try
         {
             await WaitForPeerAsync(
@@ -221,6 +263,7 @@ public class PeerServiceTests
                 PeerAvailability.Available,
                 timeout.Token
             );
+
             var deviceId = second.DeviceId;
             int port = second.LocalPort;
             second.SetExchangeEnabled(false);
@@ -254,11 +297,13 @@ public class PeerServiceTests
     {
         string directory = Path.Combine(Path.GetTempPath(), $"protocol-resume-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
+
         string source = Path.Combine(directory, "source.bin");
         string destination = Path.Combine(directory, "received");
         byte[] data = new byte[5 * 1024 * 1024];
         Random.Shared.NextBytes(data);
         await File.WriteAllBytesAsync(source, data);
+
         try
         {
             await using var sender = new PeerService("Sender", 0);
@@ -271,6 +316,7 @@ public class PeerServiceTests
                 TaskCreationOptions.RunContinuationsAsynchronously
             );
             receiver.Transfers.FileOffered += transfer => offered.TrySetResult(transfer);
+
             int interrupted = 0;
             receiver.Transfers.TransferChanged += transfer =>
             {
@@ -283,6 +329,7 @@ public class PeerServiceTests
                     receiver.LossRate = 100;
                 }
             };
+
             try
             {
                 await WaitForPeerAsync(
@@ -297,6 +344,7 @@ public class PeerServiceTests
                     PeerAvailability.Available,
                     timeout.Token
                 );
+
                 var sending = sender.OfferFileAsync(receiver.DeviceId, source, timeout.Token);
                 var offer = await offered.Task.WaitAsync(timeout.Token);
                 await receiver.AnswerFileOfferAsync(
@@ -313,6 +361,7 @@ public class PeerServiceTests
                     TransferState.Paused,
                     timeout.Token
                 );
+
                 uint nextIndex = receiver
                     .Transfers.GetTransfer(new TransferKey(sender.DeviceId, offer.FileId))
                     .NextIndex;
@@ -334,6 +383,7 @@ public class PeerServiceTests
                     TransferState.Completed,
                     timeout.Token
                 );
+
                 var saved = receiver.Transfers.GetTransfer(
                     new TransferKey(sender.DeviceId, offer.FileId)
                 );
@@ -363,6 +413,7 @@ public class PeerServiceTests
     public async Task DisableExchange_PausesPendingFileInsteadOfCancellingIt()
     {
         string source = Path.GetTempFileName();
+
         try
         {
             await using var sender = new PeerService("Sender", 0);
@@ -373,8 +424,10 @@ public class PeerServiceTests
                 TaskCreationOptions.RunContinuationsAsynchronously
             );
             receiver.Transfers.FileOffered += transfer => offered.TrySetResult(transfer);
+
             var senderRun = sender.RunAsync(timeout.Token);
             var receiverRun = receiver.RunAsync(timeout.Token);
+
             try
             {
                 await WaitForPeerAsync(
@@ -383,11 +436,13 @@ public class PeerServiceTests
                     PeerAvailability.Available,
                     timeout.Token
                 );
+
                 var sending = sender.OfferFileAsync(receiver.DeviceId, source, timeout.Token);
                 await offered.Task.WaitAsync(timeout.Token);
                 await Task.Delay(20, timeout.Token);
 
                 sender.SetExchangeEnabled(false);
+
                 var transfer = await sending.WaitAsync(timeout.Token);
 
                 Assert.Equal(TransferState.Paused, transfer.State);
@@ -418,6 +473,7 @@ public class PeerServiceTests
         var receiving = receiver.RunAsync(timeout.Token);
         var deviceId = Guid.NewGuid();
         uint nextSeq = 0;
+
         try
         {
             foreach (string text in new[] { "Before restart", "After restart" })
@@ -432,13 +488,16 @@ public class PeerServiceTests
                         received.TrySetResult(value);
                     }
                 }
+
                 receiver.TextReceived += OnTextReceived;
+
                 var sender = new PeerService(
                     "Restarting peer",
                     0,
                     deviceId: deviceId,
                     initialSeq: nextSeq
                 );
+
                 try
                 {
                     await using (sender)
@@ -449,7 +508,9 @@ public class PeerServiceTests
                         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(
                             timeout.Token
                         );
+
                         var sending = sender.RunAsync(stopping.Token);
+
                         try
                         {
                             await WaitForPeerAsync(
@@ -476,6 +537,7 @@ public class PeerServiceTests
                             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sending);
                         }
                     }
+
                     nextSeq = sender.NextSequence;
                 }
                 finally

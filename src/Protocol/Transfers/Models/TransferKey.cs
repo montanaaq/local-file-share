@@ -1,5 +1,5 @@
 using System;
 
-namespace Protocol;
+namespace Protocol.Transfers.Models;
 
 public readonly record struct TransferKey(Guid PeerDeviceId, Guid FileId);

@@ -2,8 +2,10 @@ using System;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
+using Protocol.Messages;
+using Protocol.Transport;
 
-namespace Protocol;
+namespace Protocol.Extensions;
 
 internal static class MessageTransportExtensions
 {

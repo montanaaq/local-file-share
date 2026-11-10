@@ -12,6 +12,7 @@ public sealed class SettingsStorage
     public SettingsStorage(string profile)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(profile);
+
         foreach (char character in profile)
         {
             if (!char.IsAsciiLetterOrDigit(character) && character != '-' && character != '_')
@@ -36,12 +37,14 @@ public sealed class SettingsStorage
         {
             return new ClientSettings();
         }
+
         string json = File.ReadAllText(_filePath);
 
         var settings =
             JsonSerializer.Deserialize<ClientSettings>(json)
             ?? throw new InvalidDataException("Файл настроек пуст.");
         settings.Validate();
+
         return settings;
     }
 

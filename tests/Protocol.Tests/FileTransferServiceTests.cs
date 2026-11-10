@@ -1,4 +1,7 @@
 using System.Security.Cryptography;
+using Protocol.Transfers;
+using Protocol.Transfers.Files;
+using Protocol.Transfers.Models;
 
 namespace Protocol.Tests;
 
@@ -10,16 +13,18 @@ public class FileTransferServiceTests
     public async Task IncomingPause_DeletesPartOnTimeoutOrCancellation(bool cancel)
     {
         string directory = Path.Combine(Path.GetTempPath(), $"protocol-timeout-{Guid.NewGuid():N}");
+
         try
         {
             var clock = new TransferClock();
             await using var service = new FileTransferService(clock);
             var sender = Guid.NewGuid();
             var fileId = Guid.NewGuid();
-            byte[] offer = Payloads.EncodeFileOffer(sender, fileId, 1, new byte[32], "timeout.bin");
+            var offer = (sender, fileId, 1UL, new byte[32], "timeout.bin");
             service.HandleFileOffer(offer);
             service.SetIncomingDecision(new TransferKey(sender, fileId), true, directory);
             service.PauseAll();
+
             if (cancel)
             {
                 service.CancelPaused(new TransferKey(sender, fileId));
@@ -29,9 +34,14 @@ public class FileTransferServiceTests
                 clock.Advance(ProtocolConstants.PauseTimeout);
                 service.CheckTimeouts();
             }
+
             Assert.Equal(
                 cancel ? TransferState.Cancelled : TransferState.Failed,
                 service.GetTransfer(new TransferKey(sender, fileId)).State
+            );
+            Assert.Equal(
+                cancel ? TransferError.None : TransferError.Timeout,
+                service.GetTransfer(new TransferKey(sender, fileId)).ErrorCode
             );
             Assert.Empty(Directory.GetFiles(directory));
         }
@@ -48,28 +58,25 @@ public class FileTransferServiceTests
     public async Task CompleteIncomingTransferAsync_SanitizesPeerName_AndPreservesExistingFile()
     {
         string directory = Path.Combine(Path.GetTempPath(), $"protocol-save-{Guid.NewGuid():N}");
+
         try
         {
             Directory.CreateDirectory(directory);
             const string fileName = "../../report.bin";
+
             string safeName = fileName.SanitizeFileName();
             string existingPath = Path.Combine(directory, safeName.WithFileSuffix(0));
             await File.WriteAllBytesAsync(existingPath, [9]);
+
             byte[] data = [1, 2, 3];
             await using var service = new FileTransferService();
             var deviceId = Guid.NewGuid();
             var fileId = Guid.NewGuid();
             service.HandleFileOffer(
-                Payloads.EncodeFileOffer(
-                    deviceId,
-                    fileId,
-                    (ulong)data.Length,
-                    SHA256.HashData(data),
-                    fileName
-                )
+                (deviceId, fileId, (ulong)data.Length, SHA256.HashData(data), fileName)
             );
             service.SetIncomingDecision(new TransferKey(deviceId, fileId), true, directory);
-            Assert.True(service.HandleChunk(Payloads.EncodeChunk(deviceId, fileId, 0, data)));
+            Assert.True(service.HandleChunk(new TransferKey(deviceId, fileId), 0, data));
 
             var key = new TransferKey(deviceId, fileId);
             var completion = service.CompleteIncomingTransferAsync(key, CancellationToken.None);
@@ -100,16 +107,15 @@ public class FileTransferServiceTests
     public async Task CompleteIncomingTransferAsync_BadHash_FailsAndDeletesPartFile()
     {
         string directory = Path.Combine(Path.GetTempPath(), $"protocol-save-{Guid.NewGuid():N}");
+
         try
         {
             await using var service = new FileTransferService();
             var deviceId = Guid.NewGuid();
             var fileId = Guid.NewGuid();
-            service.HandleFileOffer(
-                Payloads.EncodeFileOffer(deviceId, fileId, 1, new byte[32], "report.bin")
-            );
+            service.HandleFileOffer((deviceId, fileId, 1, new byte[32], "report.bin"));
             service.SetIncomingDecision(new TransferKey(deviceId, fileId), true, directory);
-            Assert.True(service.HandleChunk(Payloads.EncodeChunk(deviceId, fileId, 0, [1])));
+            Assert.True(service.HandleChunk(new TransferKey(deviceId, fileId), 0, [1]));
 
             Assert.False(
                 await service.CompleteIncomingTransferAsync(
@@ -121,6 +127,10 @@ public class FileTransferServiceTests
             Assert.Equal(
                 TransferState.Failed,
                 service.GetTransfer(new TransferKey(deviceId, fileId)).State
+            );
+            Assert.Equal(
+                TransferError.IntegrityCheckFailed,
+                service.GetTransfer(new TransferKey(deviceId, fileId)).ErrorCode
             );
             Assert.Empty(Directory.GetFiles(directory));
         }
@@ -137,6 +147,7 @@ public class FileTransferServiceTests
     public async Task IncomingFile_IgnoresInvalidAndDuplicateChunks()
     {
         string directory = Path.Combine(Path.GetTempPath(), $"protocol-chunks-{Guid.NewGuid():N}");
+
         try
         {
             await using var service = new FileTransferService();
@@ -145,23 +156,16 @@ public class FileTransferServiceTests
             var key = new TransferKey(sender, fileId);
             byte[] data = [1, 2, 3];
             service.HandleFileOffer(
-                Payloads.EncodeFileOffer(
-                    sender,
-                    fileId,
-                    (ulong)data.Length,
-                    SHA256.HashData(data),
-                    "test.bin"
-                )
+                (sender, fileId, (ulong)data.Length, SHA256.HashData(data), "test.bin")
             );
             service.SetIncomingDecision(key, true, directory);
 
-            Assert.False(service.HandleChunk(Payloads.EncodeChunk(sender, fileId, 1, data)));
-            Assert.False(service.HandleChunk(Payloads.EncodeChunk(sender, fileId, 0, [1])));
+            Assert.False(service.HandleChunk(new TransferKey(sender, fileId), 1, data));
+            Assert.False(service.HandleChunk(new TransferKey(sender, fileId), 0, [1]));
             Assert.Equal(0u, service.GetTransfer(key).NextIndex);
 
-            byte[] chunk = Payloads.EncodeChunk(sender, fileId, 0, data);
-            Assert.True(service.HandleChunk(chunk));
-            Assert.True(service.HandleChunk(chunk));
+            Assert.True(service.HandleChunk(key, 0, data));
+            Assert.True(service.HandleChunk(key, 0, data));
             Assert.Equal(1u, service.GetTransfer(key).NextIndex);
             Assert.True(await service.CompleteIncomingTransferAsync(key, CancellationToken.None));
             Assert.Equal(data, await File.ReadAllBytesAsync(service.GetTransfer(key).SavedPath!));

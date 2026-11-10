@@ -4,7 +4,7 @@ using System.Linq;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 
-namespace Protocol;
+namespace Protocol.Exchange;
 
 internal sealed class NotificationDispatcher : IAsyncDisposable
 {
@@ -60,6 +60,7 @@ internal sealed class NotificationDispatcher : IAsyncDisposable
     private void ReportFailure(Exception error)
     {
         var handlers = NotificationFailed;
+
         if (handlers is null)
         {
             Trace.TraceError($"Notification handler failed: {error}");

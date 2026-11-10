@@ -2,8 +2,10 @@ using System;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
+using Protocol.Extensions;
+using Protocol.Messages;
 
-namespace Protocol;
+namespace Protocol.Transport;
 
 internal interface IMessageTransport
 {

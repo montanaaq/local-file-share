@@ -1,5 +1,8 @@
 using System.Net;
 using System.Net.Sockets;
+using Protocol.Extensions;
+using Protocol.Messages;
+using Protocol.Transport;
 
 namespace Protocol.Tests;
 
@@ -18,6 +21,7 @@ public class UdpTransportTests
             sender.NextSeq(),
             Payloads.EncodeChunk(Guid.NewGuid(), Guid.NewGuid(), 0, [1])
         );
+
         var sending = sender.SendReliableAsync(packet, endpoint, receiverId, timeout.Token);
         var first = await receiver.ReceiveAsync(timeout.Token);
         var retry = await receiver.ReceiveAsync(timeout.Token);

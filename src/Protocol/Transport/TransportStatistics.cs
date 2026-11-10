@@ -1,4 +1,4 @@
-namespace Protocol;
+namespace Protocol.Transport;
 
 public sealed record TransportStatistics(
     long SentPackets,

@@ -1,3 +1,5 @@
+using Protocol.Messages;
+
 namespace Protocol.Tests;
 
 public class PacketTests

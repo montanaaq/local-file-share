@@ -1,6 +1,6 @@
 using System.Net.Sockets;
 
-namespace Protocol;
+namespace Protocol.Extensions;
 
 internal static class SocketExceptionExtensions
 {

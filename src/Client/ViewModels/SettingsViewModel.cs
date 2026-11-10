@@ -57,6 +57,7 @@ public partial class SettingsViewModel : ObservableObject
     {
         DeviceNameError = string.Empty;
         LocalPortError = string.Empty;
+
         try
         {
             ClientSettings.Validate();
@@ -76,6 +77,7 @@ public partial class SettingsViewModel : ObservableObject
             {
                 DeviceNameError = "Введите имя размером от 1 до 255 байт в UTF-8.";
             }
+
             return false;
         }
     }
@@ -87,6 +89,7 @@ public partial class SettingsViewModel : ObservableObject
         {
             ArgumentOutOfRangeException.ThrowIfNegative(value);
             ArgumentOutOfRangeException.ThrowIfGreaterThan(value, 100);
+
             if (IsConnectionBroken)
             {
                 return;
@@ -115,6 +118,7 @@ public partial class SettingsViewModel : ObservableObject
     public SettingsViewModel(string profile)
     {
         _settingsStorage = new SettingsStorage(profile);
+
         try
         {
             ClientSettings = _settingsStorage.Load();

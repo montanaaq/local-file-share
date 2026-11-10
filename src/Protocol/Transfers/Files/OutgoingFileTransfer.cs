@@ -4,8 +4,10 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Protocol.Messages;
+using Protocol.Transfers.Models;
 
-namespace Protocol;
+namespace Protocol.Transfers.Files;
 
 internal sealed class OutgoingFileTransfer
 {
@@ -34,6 +36,7 @@ internal sealed class OutgoingFileTransfer
         }
 
         ArgumentException.ThrowIfNullOrEmpty(fileName);
+
         if (Encoding.UTF8.GetByteCount(fileName) > PayloadsConstants.MaxNameBytes)
         {
             throw new ArgumentException(
@@ -43,6 +46,7 @@ internal sealed class OutgoingFileTransfer
         }
 
         _sourcePath = sourcePath;
+
         Transfer = new FileTransfer
         {
             FileId = Guid.NewGuid(),
@@ -76,6 +80,7 @@ internal sealed class OutgoingFileTransfer
             FileAccess.Read,
             FileShare.Read
         );
+
         long fileSize = stream.Length;
 
         ArgumentOutOfRangeException.ThrowIfGreaterThan(fileSize, ProtocolConstants.MaxFileSize);
@@ -108,6 +113,7 @@ internal sealed class OutgoingFileTransfer
         }
 
         var stream = new FileStream(_sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+
         try
         {
             if (
@@ -117,10 +123,14 @@ internal sealed class OutgoingFileTransfer
                     .SequenceEqual(Transfer.Sha256)
             )
             {
-                throw new IOException("Source file has changed since the offer was prepared");
+                throw new FileTransferException(
+                    TransferError.SourceFileChanged,
+                    "Source file has changed since the offer was prepared"
+                );
             }
 
             ct.ThrowIfCancellationRequested();
+
             stream.Position = 0;
             return stream;
         }

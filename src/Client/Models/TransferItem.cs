@@ -1,5 +1,5 @@
 using System;
-using Protocol;
+using Protocol.Transfers.Models;
 
 namespace Client;
 
@@ -37,6 +37,10 @@ public sealed record TransferItem(FileTransfer Transfer)
         };
 
     public bool IsPaused => Transfer.State == TransferState.Paused;
+
+    public string ErrorText =>
+        Transfer.State == TransferState.Failed ? Transfer.ErrorCode.ToUserMessage() : string.Empty;
+
     public string PauseTimeText
     {
         get

@@ -1,4 +1,4 @@
-namespace Protocol;
+namespace Protocol.Peers;
 
 public enum PeerAvailability
 {

@@ -1,4 +1,4 @@
-namespace Protocol;
+namespace Protocol.Transfers.Models;
 
 public enum TransferState
 {

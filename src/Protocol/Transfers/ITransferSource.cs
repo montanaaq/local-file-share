@@ -1,6 +1,7 @@
 using System;
+using Protocol.Transfers.Models;
 
-namespace Protocol;
+namespace Protocol.Transfers;
 
 /// <summary>
 /// Снимки передач и события из фонового обработчика.

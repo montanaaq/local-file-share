@@ -5,8 +5,10 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
+using Protocol.Extensions;
+using Protocol.Messages;
 
-namespace Protocol;
+namespace Protocol.Transport;
 
 public sealed class UdpTransport : IDisposable, IMessageTransport
 {
@@ -26,11 +28,14 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
     private readonly CancellationTokenSource _receiveCts = new();
     private readonly Task _receiveTask;
     private int _disposed;
+
     private readonly Lock _ackLock = new();
     private Exception? _receiveError;
+
     private int _lossRate;
     private int _exchangeEnabled = 1;
     private int _exchangeGeneration;
+
     private long _sentPackets;
     private long _receivedPackets;
     private long _acknowledgmentsSent;
@@ -51,6 +56,7 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
     {
         _nextSeq = initialSeq;
         _socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+
         try
         {
             _socket.ExclusiveAddressUse = true;
@@ -63,6 +69,7 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
             _receiveCts.Dispose();
             throw;
         }
+
         _receiveTask = ReceiveLoopAsync(_receiveCts.Token);
     }
 
@@ -78,6 +85,7 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
                 ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
                 int enabled = value ? 1 : 0;
+
                 if (_exchangeEnabled == enabled)
                 {
                     return;
@@ -148,6 +156,7 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
                 .SendToAsync(bytes.AsMemory(), SocketFlags.None, remote, ct)
                 .ConfigureAwait(false);
             Interlocked.Increment(ref _sentPackets);
+
             if (packet.Type == MessageType.Ack)
             {
                 Interlocked.Increment(ref _acknowledgmentsSent);
@@ -164,6 +173,7 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
     {
         byte[] payload = Payloads.EncodeAck(deviceId, ackedSeq);
         var packet = new Packet(MessageType.Ack, NextSeq(), payload);
+
         return SendAsync(packet, remote);
     }
 
@@ -188,13 +198,14 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
     {
         byte[] buffer = new byte[ushort.MaxValue];
         Exception? error = null;
+
         try
         {
             while (true)
             {
-                // Discard receives spanning a toggle as well as already queued packets.
                 int generation = Volatile.Read(ref _exchangeGeneration);
                 (Packet? Packet, IPEndPoint From) incoming;
+
                 try
                 {
                     incoming = await ReceiveFromSocketAsync(buffer, ct).ConfigureAwait(false);
@@ -206,12 +217,12 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
                                 or SocketError.ConnectionRefused
                     )
                 {
-                    // An ICMP error for an earlier datagram does not close a UDP listener.
                     Interlocked.Increment(ref _errors);
                     continue;
                 }
 
                 var (packet, from) = incoming;
+
                 if (
                     !IsExchangeEnabled
                     || generation != Volatile.Read(ref _exchangeGeneration)
@@ -300,6 +311,7 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
         while (true)
         {
             var incoming = await _incoming.Reader.ReadAsync(ct).ConfigureAwait(false);
+
             if (IsExchangeEnabled && incoming.Generation == Volatile.Read(ref _exchangeGeneration))
             {
                 return (incoming.Packet, incoming.From);
@@ -351,6 +363,7 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
                 );
             }
         }
+
         try
         {
             int maxSendAttempts =
@@ -381,7 +394,7 @@ public sealed class UdpTransport : IDisposable, IMessageTransport
         }
     }
 
-    private async Task<bool> WaitForAckAsync(Task<bool> ackTask, CancellationToken ct)
+    private static async Task<bool> WaitForAckAsync(Task<bool> ackTask, CancellationToken ct)
     {
         try
         {

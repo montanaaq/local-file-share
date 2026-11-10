@@ -3,17 +3,20 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
+using Protocol.Messages;
 
-namespace Protocol;
+namespace Protocol.Transfers.Files;
 
 internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
 {
     private readonly SemaphoreSlim _fileLock = new(1, 1);
     private bool _disposed;
+
     private readonly string _partPath;
     private readonly FileStream _stream;
     private readonly ulong _fileSize;
     private readonly bool[] _receivedChunks;
+
     private bool _verified;
 
     public uint NextIndex { get; private set; }
@@ -37,6 +40,7 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
     public static IncomingFileTransfer Create(ulong fileSize, string directory)
     {
         Directory.CreateDirectory(directory);
+
         string partPath = Path.Combine(directory, $"{Guid.NewGuid():N}.part");
         var stream = new FileStream(
             partPath,
@@ -44,6 +48,7 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
             FileAccess.ReadWrite,
             FileShare.None
         );
+
         try
         {
             return new IncomingFileTransfer(partPath, stream, fileSize);
@@ -66,6 +71,7 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
     public bool TryWriteChunk(uint index, ReadOnlySpan<byte> data, out uint nextIndex)
     {
         _fileLock.Wait();
+
         try
         {
             return !_disposed && TryWriteChunkCore(index, data);
@@ -106,12 +112,14 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
             }
 
             await _stream.FlushAsync(ct);
+
             if ((ulong)_stream.Length != _fileSize)
             {
                 return false;
             }
 
             _stream.Position = 0;
+
             byte[] actualSha256 = await SHA256.HashDataAsync(_stream, ct).ConfigureAwait(false);
 
             _verified = actualSha256.AsSpan().SequenceEqual(expectedSha256);
@@ -149,6 +157,7 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
                 ?? throw new InvalidOperationException("Temporary file directory not found");
 
             ct.ThrowIfCancellationRequested();
+
             await _stream.DisposeAsync();
             _disposed = true;
 
@@ -158,6 +167,7 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
 
                 string candidateName = safeName.WithFileSuffix(number);
                 string destinationPath = Path.Combine(directory, candidateName);
+
                 try
                 {
                     File.Move(_partPath, destinationPath, overwrite: false);
@@ -182,6 +192,7 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
     public void Dispose()
     {
         _fileLock.Wait();
+
         try
         {
             _stream.Dispose();
@@ -197,6 +208,7 @@ internal sealed class IncomingFileTransfer : IDisposable, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await _fileLock.WaitAsync().ConfigureAwait(false);
+
         try
         {
             _disposed = true;

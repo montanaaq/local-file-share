@@ -33,7 +33,9 @@ public partial class MainWindow : Window
         using var downloads = await StorageProvider.TryGetWellKnownFolderAsync(
             WellKnownFolder.Downloads
         );
+
         string? downloadsPath = downloads?.TryGetLocalPath();
+
         if (downloadsPath is not null)
         {
             return downloadsPath;
@@ -51,12 +53,14 @@ public partial class MainWindow : Window
                 AllowMultiple = false,
             }
         );
+
         if (folders.Count == 0)
         {
             return null;
         }
 
         using var folder = folders[0];
+
         return folder.TryGetLocalPath()
             ?? throw new System.IO.IOException("Необходимо выбрать локальную папку.");
     }
@@ -82,6 +86,7 @@ public partial class MainWindow : Window
         }
 
         using var file = files[0];
+
         return file.TryGetLocalPath()
             ?? throw new IOException("Необходимо выбрать файл для отправки");
     }
@@ -95,11 +100,14 @@ public partial class MainWindow : Window
             && vm.StartSearchCommand.IsRunning
             && !vm.StartSearchCommand.IsCancellationRequested
             && e.DataTransfer.Contains(DataFormat.File);
+
         e.DragEffects = allowed ? DragDropEffects.Copy : DragDropEffects.None;
+
         if (sender is Control target)
         {
             target.Classes.Set("dragover", allowed);
         }
+
         e.Handled = true;
     }
 
@@ -116,6 +124,7 @@ public partial class MainWindow : Window
         OnFileDragLeave(sender, e);
         e.Handled = true;
         e.DragEffects = DragDropEffects.None;
+
         if (DataContext is not MainViewModel vm)
         {
             return;
@@ -133,16 +142,19 @@ public partial class MainWindow : Window
         }
 
         var items = e.DataTransfer.TryGetFiles()?.Take(2).ToArray();
+
         if (items is null || items.Length == 0)
         {
             vm.NetworkMessage = "Перетащите один локальный файл.";
             return;
         }
+
         if (items.Length > 1)
         {
             vm.NetworkMessage = "Пока можно выбрать только один файл за раз.";
             return;
         }
+
         if (items[0] is not IStorageFile file || file.TryGetLocalPath() is not { } path)
         {
             vm.NetworkMessage = "Нужен локальный файл. Папки не поддерживаются.";
@@ -174,6 +186,7 @@ public partial class MainWindow : Window
         {
             return;
         }
+
         _closeInProgress = true;
         IsEnabled = false;
 
