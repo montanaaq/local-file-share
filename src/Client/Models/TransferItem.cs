@@ -36,6 +36,19 @@ public sealed record TransferItem(FileTransfer Transfer)
             _ => "Неизвестное состояние",
         };
 
+    public bool IsCompleted => Transfer.State == TransferState.Completed;
+    public bool IsFailed => Transfer.State == TransferState.Failed;
+
+    public string StateSymbol =>
+        Transfer.State switch
+        {
+            TransferState.Completed => "✓",
+            TransferState.Failed => "!",
+            TransferState.Paused => "Ⅱ",
+            TransferState.Cancelled or TransferState.Rejected => "×",
+            _ => "…",
+        };
+
     public bool IsPaused => Transfer.State == TransferState.Paused;
 
     public string ErrorText =>

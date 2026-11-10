@@ -21,6 +21,7 @@ public partial class IncomingFilesViewModel : ObservableObject
     public Func<Task<string?>>? PickReceiveDirectoryAsync { get; set; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasActivity))]
     public partial string NetworkMessage { get; set; } = string.Empty;
 
     [ObservableProperty]
@@ -33,6 +34,7 @@ public partial class IncomingFilesViewModel : ObservableObject
     public ObservableCollection<IncomingFileOffer> Offers { get; } = [];
 
     public bool HasIncomingFile => Offers.Count > 0;
+    public bool HasActivity => HasIncomingFile || !string.IsNullOrEmpty(NetworkMessage);
 
     /// <summary>
     /// Меняет сессию входящих предложений и подписки на их появление и завершение.
@@ -50,6 +52,7 @@ public partial class IncomingFilesViewModel : ObservableObject
         _peerService = service;
         _sessionToken = token;
         Offers.Clear();
+        NetworkMessage = string.Empty;
         NotifyIncomingFilesChanged();
 
         if (service is not null)
@@ -62,6 +65,7 @@ public partial class IncomingFilesViewModel : ObservableObject
     private void NotifyIncomingFilesChanged()
     {
         OnPropertyChanged(nameof(HasIncomingFile));
+        OnPropertyChanged(nameof(HasActivity));
         AcceptIncomingFileCommand.NotifyCanExecuteChanged();
         RejectIncomingFileCommand.NotifyCanExecuteChanged();
     }
@@ -259,6 +263,7 @@ public partial class IncomingFilesViewModel : ObservableObject
                 transfer.FileSize,
                 senderName
             );
+            NetworkMessage = string.Empty;
             Offers.Add(offer);
             NotifyIncomingFilesChanged();
         });

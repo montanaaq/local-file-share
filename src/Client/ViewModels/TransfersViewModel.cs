@@ -19,12 +19,19 @@ public partial class TransfersViewModel : ObservableObject
     private CancellationToken _sessionToken;
 
     private IDisposable? _pauseRefresh;
+    private TransferKey? _sendingTransferKey;
 
     public Func<Task<string?>>? PickFileAsync { get; set; }
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendFileCommand))]
     public partial PeerItem? Recipient { get; set; }
+
+    partial void OnRecipientChanged(PeerItem? value)
+    {
+        _sendingTransferKey = null;
+        NetworkMessage = string.Empty;
+    }
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendFileCommand))]
@@ -36,9 +43,14 @@ public partial class TransfersViewModel : ObservableObject
     public partial ulong SelectedFileSize { get; set; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasMessage))]
     public partial string NetworkMessage { get; set; } = string.Empty;
 
+    public bool HasMessage => !string.IsNullOrEmpty(NetworkMessage);
+
     public ObservableCollection<TransferItem> Transfers { get; } = [];
+
+    public bool HasTransfers => Transfers.Count > 0;
 
     public bool HasSelectedFile => SelectedFilePath is not null;
 
@@ -65,10 +77,13 @@ public partial class TransfersViewModel : ObservableObject
 
         _peerService = service;
         _sessionToken = token;
+        _sendingTransferKey = null;
+        NetworkMessage = string.Empty;
 
         if (service is not null)
         {
             Transfers.Clear();
+            OnPropertyChanged(nameof(HasTransfers));
             ClearSelectedFile();
 
             service.Transfers.TransferChanged += OnTransferChanged;
@@ -88,6 +103,8 @@ public partial class TransfersViewModel : ObservableObject
     {
         SelectedFilePath = null;
         SelectedFileSize = 0;
+        _sendingTransferKey = null;
+        NetworkMessage = string.Empty;
     }
 
     [RelayCommand]
@@ -165,6 +182,11 @@ public partial class TransfersViewModel : ObservableObject
     /// <param name="path">Локальный путь к файлу.</param>
     public bool SelectFile(string path)
     {
+        if (SendFileCommand.IsRunning)
+        {
+            return false;
+        }
+
         try
         {
             var file = new FileInfo(path);
@@ -174,6 +196,7 @@ public partial class TransfersViewModel : ObservableObject
                 return false;
             }
 
+            _sendingTransferKey = null;
             SelectedFilePath = file.FullName;
             SelectedFileSize = (ulong)file.Length;
             NetworkMessage = $"Выбран файл «{file.Name}». Нажмите «Отправить файл».";
@@ -235,19 +258,13 @@ public partial class TransfersViewModel : ObservableObject
                 return;
             }
 
-            NetworkMessage = $"Предлагаем файл «{fileInfo.Name}» устройству «{recipient.Name}».";
+            _sendingTransferKey = null;
+            NetworkMessage = $"Подготовка файла «{fileInfo.Name}»…";
 
             var transfer = await service.OfferFileAsync(recipient.DeviceId, path, token);
 
-            NetworkMessage = transfer.State switch
-            {
-                TransferState.Completed => "Файл успешно передан и сохранён получателем.",
-                TransferState.Rejected => "Получатель отказался от файла.",
-                TransferState.Paused => "Передача приостановлена. Ожидается восстановление связи.",
-                TransferState.Failed => transfer.ErrorCode.ToUserMessage(),
-                TransferState.Cancelled => "Передача отменена.",
-                _ => "Операция отправки завершилась. Состояние передачи изменилось.",
-            };
+            _sendingTransferKey = transfer.Key;
+            NetworkMessage = GetTransferMessage(transfer);
         }
         catch (OperationCanceledException exception)
             when (token.IsCancellationRequested
@@ -270,6 +287,23 @@ public partial class TransfersViewModel : ObservableObject
         }
     }
 
+    private static string GetTransferMessage(FileTransfer transfer) =>
+        transfer.State switch
+        {
+            TransferState.WaitingForAnswer => "Ожидаем решения получателя…",
+            TransferState.Transferring when transfer.NextIndex == transfer.ChunkCount =>
+                "Файл отправлен. Ожидаем подтверждения сохранения…",
+            TransferState.Transferring =>
+                $"Отправка: {transfer.TransferredBytes.ToFileSize()} из {transfer.FileSize.ToFileSize()}.",
+            TransferState.Completed => "Файл доставлен и сохранён получателем.",
+            TransferState.Rejected => "Получатель отказался от файла.",
+            TransferState.Paused =>
+                "Передача приостановлена. Прогресс сохранён, ожидаем восстановления связи.",
+            TransferState.Failed => transfer.ErrorCode.ToUserMessage(),
+            TransferState.Cancelled => "Передача отменена.",
+            _ => "Обрабатываем файл…",
+        };
+
     private void OnTransferChanged(FileTransfer transfer)
     {
         var service = _peerService;
@@ -279,6 +313,23 @@ public partial class TransfersViewModel : ObservableObject
             if (service is null || !ReferenceEquals(service, _peerService))
             {
                 return;
+            }
+
+            if (
+                _sendingTransferKey is null
+                && SendFileCommand.IsRunning
+                && transfer.Direction == TransferDirection.Outgoing
+                && transfer.State == TransferState.WaitingForAnswer
+                && transfer.PeerDeviceId == Recipient?.DeviceId
+                && transfer.FileName == SelectedFileName
+            )
+            {
+                _sendingTransferKey = transfer.Key;
+            }
+
+            if (transfer.Key == _sendingTransferKey)
+            {
+                NetworkMessage = GetTransferMessage(transfer);
             }
 
             var item = new TransferItem(transfer);
@@ -293,6 +344,7 @@ public partial class TransfersViewModel : ObservableObject
             }
 
             Transfers.Add(item);
+            OnPropertyChanged(nameof(HasTransfers));
         });
     }
 

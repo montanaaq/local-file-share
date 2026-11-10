@@ -41,7 +41,7 @@
         Background="White"
         Container.Name="client"
         Container.Sizing="Width">
-        <Grid RowDefinitions="Auto,*,Auto">
+        <Grid RowDefinitions="Auto,Auto,*,Auto">
             <Border
                 Padding="0,0,0,18"
                 BorderBrush="#E2E9F2"
@@ -86,8 +86,55 @@
                     </Border>
                 </Grid>
             </Border>
+            <ScrollViewer Grid.Row="1" MaxHeight="260" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Spacing="12">
+                    <Border Margin="0,12,0,0" Classes="notice" IsVisible="{Binding IsConnectionInterrupted}">
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="warning" Text="Имитация обрыва: обмен данными приостановлен." />
+                            <Button Classes="secondary" Command="{Binding Settings.RestoreConnectionCommand}" Content="Восстановить связь" />
+                        </StackPanel>
+                    </Border>
+                    <Border Margin="0,12,0,0" Classes="incomingPanel" IsVisible="{Binding IncomingFiles.HasActivity}">
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="label" IsVisible="{Binding IncomingFiles.HasIncomingFile}" Text="{Binding IncomingFiles.Offers.Count, StringFormat='Входящие файлы · {0}'}" />
+                            <ItemsControl ItemsSource="{Binding IncomingFiles.Offers}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="client:IncomingFileOffer">
+                                        <Border Margin="0,0,0,12" Classes="card">
+                                            <StackPanel Spacing="10">
+                                                <TextBlock
+                                                    Classes="label"
+                                                    Text="{Binding FileName}"
+                                                    TextWrapping="Wrap" />
+                                                <TextBlock Classes="muted" Text="{Binding FormattedSize}" />
+                                                <TextBlock Classes="muted" Text="{Binding SenderName, StringFormat='От: {0}'}" />
+                                                <Grid ColumnDefinitions="*,12,*">
+                                                    <Button
+                                                        HorizontalAlignment="Stretch"
+                                                        Classes="secondary"
+                                                        Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).IncomingFiles.RejectIncomingFileCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        Content="Отказаться" />
+                                                    <Button
+                                                        Grid.Column="2"
+                                                        HorizontalAlignment="Stretch"
+                                                        Classes="primary"
+                                                        Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).IncomingFiles.AcceptIncomingFileCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        Content="Принять" />
+                                                </Grid>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Classes="muted" Text="{Binding IncomingFiles.NetworkMessage}" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
             <ScrollViewer
-                Grid.Row="1"
+                Grid.Row="2"
                 Margin="0,18,0,20"
                 HorizontalScrollBarVisibility="Disabled">
                 <Grid>
@@ -111,18 +158,6 @@
                             Text="{Binding NetworkMessage}"
                             TextWrapping="Wrap" />
                         <TextBlock Classes="muted" Text="Получатель" />
-                        <Grid ColumnDefinitions="*,8,Auto">
-                            <TextBox PlaceholderText="IPv4:порт, например 192.168.1.10:5000" Text="{Binding ManualAddress, Mode=TwoWay}" />
-                            <Button
-                                Grid.Column="2"
-                                Classes="secondary"
-                                Command="{Binding AddManualAddressCommand}"
-                                Content="Добавить" />
-                        </Grid>
-                        <TextBlock
-                            Classes="error"
-                            IsVisible="{Binding HasManualAddressError}"
-                            Text="{Binding ManualAddressError}" />
                         <Border Classes="card" IsVisible="{Binding !HasSelectedDevice}">
                             <StackPanel Spacing="8">
                                 <TextBlock
@@ -177,7 +212,8 @@
                                     <Button
                                         Classes="secondary"
                                         Command="{Binding ChangeRecipientCommand}"
-                                        Content="Сменить получателя" />
+                                        Content="Сменить получателя"
+                                        IsEnabled="{Binding !FileTransfers.SendFileCommand.IsRunning}" />
                                 </StackPanel>
                             </Border>
                             <TextBlock
@@ -185,172 +221,147 @@
                                 IsVisible="{Binding HasRecipientMessage}"
                                 Text="{Binding RecipientMessage}"
                                 TextWrapping="Wrap" />
-                            <TextBlock Classes="muted" Text="Получатель отдельно подтвердит или отклонит каждый файл." />
-                            <Button
-                                Padding="22"
-                                HorizontalAlignment="Stretch"
-                                HorizontalContentAlignment="Center"
-                                AutomationProperties.Name="Выбрать файл или перетащить его сюда"
-                                BorderThickness="1.5"
-                                Classes="fileDrop"
-                                Command="{Binding FileTransfers.ChooseFileCommand}"
-                                CornerRadius="{DynamicResource ControlCornerRadius}"
-                                DragDrop.AllowDrop="True"
-                                DragDrop.DragLeave="OnFileDragLeave"
-                                DragDrop.DragOver="OnFileDragOver"
-                                DragDrop.Drop="OnFileDrop">
-                                <StackPanel Spacing="10">
-                                    <Path
-                                        Width="24"
-                                        Height="24"
-                                        Data="M12 3 v12 M17 8 l-5 -5 -5 5 M21 15 v4 a2 2 0 0 1 -2 2 H5 a2 2 0 0 1 -2 -2 v-4"
-                                        Stretch="Uniform"
-                                        Stroke="#7996C5"
-                                        StrokeJoin="Round"
-                                        StrokeLineCap="Round"
-                                        StrokeThickness="2" />
-                                    <TextBlock
-                                        HorizontalAlignment="Center"
-                                        FontWeight="SemiBold"
-                                        Text="Перетащите файл сюда"
-                                        TextAlignment="Center"
+                        </StackPanel>
+                        <TabControl SelectedIndex="0">
+                            <TabItem Header="Файл">
+                                <StackPanel Margin="0,16,0,0" Spacing="16">
+                                    <TextBlock Classes="muted" IsVisible="{Binding !HasSelectedDevice}" Text="Выберите получателя выше, чтобы отправить файл." />
+                                    <StackPanel IsVisible="{Binding HasSelectedDevice}" Spacing="16">
+                                        <TextBlock Classes="muted" Text="Получатель отдельно подтвердит или отклонит каждый файл." />
+                                        <Button
+                                            Padding="22"
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Center"
+                                            AutomationProperties.Name="Выбрать файл или перетащить его сюда"
+                                            BorderThickness="1.5"
+                                            Classes="fileDrop"
+                                            Command="{Binding FileTransfers.ChooseFileCommand}"
+                                            IsEnabled="{Binding !FileTransfers.SendFileCommand.IsRunning}"
+                                            CornerRadius="{DynamicResource ControlCornerRadius}"
+                                            DragDrop.AllowDrop="True"
+                                            DragDrop.DragLeave="OnFileDragLeave"
+                                            DragDrop.DragOver="OnFileDragOver"
+                                            DragDrop.Drop="OnFileDrop">
+                                            <StackPanel Spacing="10">
+                                                <Path
+                                                    Width="24"
+                                                    Height="24"
+                                                    Data="M12 3 v12 M17 8 l-5 -5 -5 5 M21 15 v4 a2 2 0 0 1 -2 2 H5 a2 2 0 0 1 -2 -2 v-4"
+                                                    Stretch="Uniform"
+                                                    Stroke="#7996C5"
+                                                    StrokeJoin="Round"
+                                                    StrokeLineCap="Round"
+                                                    StrokeThickness="2" />
+                                                <TextBlock
+                                                    HorizontalAlignment="Center"
+                                                    FontWeight="SemiBold"
+                                                    Text="Перетащите файл сюда"
+                                                    TextAlignment="Center"
+                                                    TextWrapping="Wrap" />
+                                                <TextBlock
+                                                    HorizontalAlignment="Center"
+                                                    Classes="muted"
+                                                    Text="{Binding FileTransfers.FileSizeHint}"
+                                                    TextAlignment="Center" />
+
+                                            </StackPanel>
+                                        </Button>
+
+                                        <Border Classes="card" IsVisible="{Binding FileTransfers.HasSelectedFile}">
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <StackPanel Margin="0,0,12,0" Spacing="5">
+                                                    <TextBlock
+                                                        Classes="label"
+                                                        Text="{Binding FileTransfers.SelectedFileName}"
+                                                        TextWrapping="Wrap"
+                                                        ToolTip.Tip="{Binding FileTransfers.SelectedFilePath}" />
+                                                    <TextBlock Classes="muted" Text="{Binding FileTransfers.SelectedFileSizeText}" />
+                                                </StackPanel>
+                                                <Button
+                                                    Grid.Column="1"
+                                                    VerticalAlignment="Center"
+                                                    Classes="secondary"
+                                                    Command="{Binding FileTransfers.ClearSelectedFileCommand}"
+                                                    Content="Убрать"
+                                                    IsEnabled="{Binding !FileTransfers.SendFileCommand.IsRunning}" />
+                                            </Grid>
+                                        </Border>
+
+                                        <Button
+                                            HorizontalAlignment="Stretch"
+                                            Classes="primary"
+                                            Command="{Binding FileTransfers.SendFileCommand}">
+                                            <TextBlock
+                                                Text="{Binding FileTransfers.Recipient.Name, StringFormat='Отправить устройству «{0}»'}"
+                                                TextAlignment="Center"
+                                                TextWrapping="Wrap" />
+                                        </Button>
+                                        <ProgressBar Height="4" IsIndeterminate="True" IsVisible="{Binding FileTransfers.SendFileCommand.IsRunning}" />
+                                        <TextBlock Classes="muted" IsVisible="{Binding FileTransfers.HasMessage}" Text="{Binding FileTransfers.NetworkMessage}" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </TabItem>
+                            <TabItem Header="{Binding TextExchange.ReceivedTexts.Count, StringFormat='Текст · {0}'}">
+                                <StackPanel Margin="0,16,0,0" Spacing="16">
+                                    <TextBlock Classes="label" Text="Текст" />
+                                    <TextBox
+                                        MinHeight="100"
+                                        MaxHeight="220"
+                                        AcceptsReturn="True"
+                                        PlaceholderText="Вставьте или напишите текст…"
+                                        Text="{Binding TextExchange.TextToSend, Mode=TwoWay}"
                                         TextWrapping="Wrap" />
                                     <TextBlock
-                                        HorizontalAlignment="Center"
+                                        HorizontalAlignment="Right"
                                         Classes="muted"
-                                        Text="{Binding FileTransfers.FileSizeHint}"
-                                        TextAlignment="Center" />
+                                        Text="{Binding TextExchange.TextByteCount, StringFormat='Размер: {0} / 1000 байт'}" />
+                                    <TextBlock
+                                        Foreground="#B42318"
+                                        Text="{Binding TextExchange.TextValidationMessage}"
+                                        TextWrapping="Wrap" />
+                                    <Grid ColumnDefinitions="*,12,*">
+                                        <Button
+                                            HorizontalAlignment="Stretch"
+                                            Classes="secondary"
+                                            Command="{Binding TextExchange.PasteTextCommand}"
+                                            Content="Вставить текст" />
+                                        <Button
+                                            Grid.Column="2"
+                                            HorizontalAlignment="Stretch"
+                                            Classes="primary"
+                                            Command="{Binding TextExchange.SendTextCommand}"
+                                            Content="Отправить текст" />
+                                    </Grid>
+                                    <TextBlock Classes="muted" IsVisible="{Binding TextExchange.HasMessage}" Text="{Binding TextExchange.TextMessage}" TextWrapping="Wrap" />
+                                    <TextBlock Classes="label" Text="Полученный текст" />
+                                    <ItemsControl ItemsSource="{Binding TextExchange.ReceivedTexts}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="client:ReceivedText">
+                                                <Border Margin="0,0,0,12" Classes="card">
+                                                    <StackPanel Spacing="10">
+                                                        <TextBlock Classes="muted" Text="{Binding SenderName, StringFormat='От: {0}'}" />
+                                                        <SelectableTextBlock Text="{Binding Text}" TextWrapping="Wrap" />
+                                                        <Button
+                                                            HorizontalAlignment="Right"
+                                                            Classes="secondary"
+                                                            Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).TextExchange.CopyReceivedTextCommand}"
+                                                            CommandParameter="{Binding}"
+                                                            Content="Копировать" />
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
                                 </StackPanel>
-                            </Button>
-
-                            <Border Classes="card" IsVisible="{Binding FileTransfers.HasSelectedFile}">
-                                <Grid ColumnDefinitions="*,Auto">
-                                    <StackPanel Margin="0,0,12,0" Spacing="5">
-                                        <TextBlock
-                                            Classes="label"
-                                            Text="{Binding FileTransfers.SelectedFileName}"
-                                            TextWrapping="Wrap"
-                                            ToolTip.Tip="{Binding FileTransfers.SelectedFilePath}" />
-                                        <TextBlock Classes="muted" Text="{Binding FileTransfers.SelectedFileSizeText}" />
-                                    </StackPanel>
-                                    <Button
-                                        Grid.Column="1"
-                                        VerticalAlignment="Center"
-                                        Classes="secondary"
-                                        Command="{Binding FileTransfers.ClearSelectedFileCommand}"
-                                        Content="Убрать"
-                                        IsEnabled="{Binding !FileTransfers.SendFileCommand.IsRunning}" />
-                                </Grid>
-                            </Border>
-
-                            <Button
-                                HorizontalAlignment="Stretch"
-                                Classes="primary"
-                                Command="{Binding FileTransfers.SendFileCommand}">
-                                <TextBlock
-                                    Text="{Binding FileTransfers.Recipient.Name, StringFormat='Отправить устройству «{0}»'}"
-                                    TextAlignment="Center"
-                                    TextWrapping="Wrap" />
-                            </Button>
-                            <TextBlock Classes="label" Text="Текст из буфера" />
-                            <TextBox
-                                MinHeight="100"
-                                MaxHeight="220"
-                                AcceptsReturn="True"
-                                PlaceholderText="Вставьте или напишите текст…"
-                                Text="{Binding TextExchange.TextToSend, Mode=TwoWay}"
-                                TextWrapping="Wrap" />
-                            <TextBlock
-                                HorizontalAlignment="Right"
-                                Classes="muted"
-                                Text="{Binding TextExchange.TextByteCount, StringFormat='Размер: {0} / 1000 байт'}" />
-                            <TextBlock
-                                Foreground="#B42318"
-                                Text="{Binding TextExchange.TextValidationMessage}"
-                                TextWrapping="Wrap" />
-                            <Grid ColumnDefinitions="*,12,*">
-                                <Button
-                                    HorizontalAlignment="Stretch"
-                                    Classes="secondary"
-                                    Command="{Binding TextExchange.PasteTextCommand}"
-                                    Content="Вставить текст" />
-                                <Button
-                                    Grid.Column="2"
-                                    HorizontalAlignment="Stretch"
-                                    Classes="primary"
-                                    Command="{Binding TextExchange.SendTextCommand}"
-                                    Content="Отправить текст" />
-                            </Grid>
-                        </StackPanel>
-                        <TextBlock
-                            Margin="0,8,0,0"
-                            Classes="label"
-                            Text="Входящие файлы" />
-                        <TextBlock
-                            Classes="muted"
-                            IsVisible="{Binding !IncomingFiles.HasIncomingFile}"
-                            Text="Нет входящих предложений файлов." />
-                        <ItemsControl ItemsSource="{Binding IncomingFiles.Offers}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="client:IncomingFileOffer">
-                                    <Border Margin="0,0,0,12" Classes="card">
-                                        <StackPanel Spacing="10">
-                                            <TextBlock
-                                                Classes="label"
-                                                Text="{Binding FileName}"
-                                                TextWrapping="Wrap" />
-                                            <TextBlock Classes="muted" Text="{Binding FormattedSize}" />
-                                            <TextBlock Classes="muted" Text="{Binding SenderName, StringFormat='От: {0}'}" />
-                                            <Grid ColumnDefinitions="*,12,*">
-                                                <Button
-                                                    HorizontalAlignment="Stretch"
-                                                    Classes="secondary"
-                                                    Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).IncomingFiles.RejectIncomingFileCommand}"
-                                                    CommandParameter="{Binding}"
-                                                    Content="Отказаться" />
-                                                <Button
-                                                    Grid.Column="2"
-                                                    HorizontalAlignment="Stretch"
-                                                    Classes="primary"
-                                                    Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).IncomingFiles.AcceptIncomingFileCommand}"
-                                                    CommandParameter="{Binding}"
-                                                    Content="Принять" />
-                                            </Grid>
-                                        </StackPanel>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                        <TextBlock Classes="label" Text="Полученный текст" />
-                        <TextBlock
-                            Classes="muted"
-                            Text="{Binding TextExchange.TextMessage}"
-                            TextWrapping="Wrap" />
-                        <ItemsControl ItemsSource="{Binding TextExchange.ReceivedTexts}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="client:ReceivedText">
-                                    <Border Margin="0,0,0,12" Classes="card">
-                                        <StackPanel Spacing="10">
-                                            <TextBlock Classes="muted" Text="{Binding SenderName, StringFormat='От: {0}'}" />
-                                            <SelectableTextBlock Text="{Binding Text}" TextWrapping="Wrap" />
-                                            <Button
-                                                HorizontalAlignment="Right"
-                                                Classes="secondary"
-                                                Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).TextExchange.CopyReceivedTextCommand}"
-                                                CommandParameter="{Binding}"
-                                                Content="Копировать" />
-                                        </StackPanel>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                            </TabItem>
+                        </TabControl>
                     </StackPanel>
                     <views:TransfersView IsVisible="{Binding IsTransfers}" />
                     <views:SettingsView IsVisible="{Binding IsSettings}" />
                 </Grid>
             </ScrollViewer>
             <Border
-                Grid.Row="2"
+                Grid.Row="3"
                 Padding="0,10,0,0"
                 BorderBrush="#E2E9F2"
                 BorderThickness="0,1,0,0">

@@ -66,6 +66,27 @@
             <Setter Property="CornerRadius" Value="{DynamicResource ControlCornerRadius}" />
             <Setter Property="Padding" Value="18" />
         </Style>
+        <Style Selector="Border.incomingPanel">
+            <Setter Property="Background" Value="#EDF3FF" />
+            <Setter Property="BorderBrush" Value="#B9C9EE" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="{DynamicResource ControlCornerRadius}" />
+            <Setter Property="Padding" Value="14" />
+        </Style>
+        <Style Selector="Border.notice">
+            <Setter Property="Background" Value="#FFF6DF" />
+            <Setter Property="CornerRadius" Value="{DynamicResource ControlCornerRadius}" />
+            <Setter Property="Padding" Value="14" />
+        </Style>
+        <Style Selector="TextBlock.transferState.completed">
+            <Setter Property="Foreground" Value="#22865E" />
+        </Style>
+        <Style Selector="TextBlock.transferState.paused">
+            <Setter Property="Foreground" Value="#946200" />
+        </Style>
+        <Style Selector="TextBlock.transferState.failed">
+            <Setter Property="Foreground" Value="#B42318" />
+        </Style>
         <Style Selector="Button.fileDrop">
             <Setter Property="Background" Value="#FAFBFF" />
             <Setter Property="BorderBrush" Value="#B9C9EE" />

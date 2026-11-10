@@ -36,6 +36,9 @@ public partial class MainViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(HasManualAddressError))]
     public partial string ManualAddressError { get; set; } = string.Empty;
 
+    [ObservableProperty]
+    public partial string ManualAddressMessage { get; set; } = string.Empty;
+
     partial void OnManualAddressChanged(string value) => ManualAddressError = string.Empty;
 
     [ObservableProperty]
@@ -94,21 +97,6 @@ public partial class MainViewModel : ObservableObject
         Settings = new SettingsViewModel(profile);
 
         Settings.PropertyChanged += OnNetworkSettingsChanged;
-        FileTransfers.PropertyChanged += OnTransferMessageChanged;
-        IncomingFiles.PropertyChanged += OnTransferMessageChanged;
-    }
-
-    private void OnTransferMessageChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName == nameof(TransfersViewModel.NetworkMessage))
-        {
-            NetworkMessage = sender switch
-            {
-                TransfersViewModel transfers => transfers.NetworkMessage,
-                IncomingFilesViewModel incoming => incoming.NetworkMessage,
-                _ => NetworkMessage,
-            };
-        }
     }
 
     private void OnNetworkSettingsChanged(object? sender, PropertyChangedEventArgs e)
@@ -156,6 +144,8 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void AddManualAddress()
     {
+        ManualAddressMessage = string.Empty;
+
         if (
             !IPEndPoint.TryParse(ManualAddress.Trim(), out var endpoint)
             || endpoint.AddressFamily != AddressFamily.InterNetwork
@@ -171,11 +161,11 @@ public partial class MainViewModel : ObservableObject
         if (_peerService is { } service && !StartSearchCommand.IsCancellationRequested)
         {
             service.AddManualEndpoint(endpoint);
-            NetworkMessage = $"Адрес {endpoint} добавлен для поиска устройства.";
+            ManualAddressMessage = $"Адрес {endpoint} добавлен для поиска устройства.";
         }
         else
         {
-            NetworkMessage = $"Адрес {endpoint} сохранён до запуска сессии.";
+            ManualAddressMessage = $"Адрес {endpoint} сохранён до запуска сессии.";
         }
 
         ManualAddress = string.Empty;

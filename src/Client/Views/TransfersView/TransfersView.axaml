@@ -4,57 +4,72 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:client="using:Client"
     xmlns:vm="using:Client.ViewModels"
-    MinHeight="480"
     VerticalAlignment="Top"
     x:DataType="vm:MainViewModel">
-    <Grid RowDefinitions="Auto,*">
+    <StackPanel Spacing="20">
         <TextBlock Classes="title" Text="Передачи" />
-        <ScrollViewer
-            Grid.Row="1"
-            Margin="0,20"
-            HorizontalScrollBarVisibility="Disabled">
-            <ItemsControl ItemsSource="{Binding FileTransfers.Transfers}">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="client:TransferItem">
-                        <Border Margin="0,0,0,12" Classes="card">
-                            <StackPanel Spacing="10">
+        <Border Classes="card" IsVisible="{Binding !FileTransfers.HasTransfers}">
+            <StackPanel Spacing="8">
+                <TextBlock Classes="label" Text="Передач пока нет" />
+                <TextBlock Classes="muted" Text="Здесь появятся отправленные и полученные файлы: прогресс, результат и причина ошибки." />
+            </StackPanel>
+        </Border>
+        <ItemsControl ItemsSource="{Binding FileTransfers.Transfers}">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="client:TransferItem">
+                    <Border Margin="0,0,0,12" Classes="card">
+                        <StackPanel Spacing="10">
+                            <TextBlock
+                                Classes="label"
+                                Text="{Binding FileName}"
+                                TextWrapping="Wrap" />
+
+                            <TextBlock Classes="muted" Text="{Binding DirectionText}" />
+
+                            <StackPanel Orientation="Horizontal" Spacing="8">
                                 <TextBlock
-                                    Classes="label"
-                                    Text="{Binding FileName}"
-                                    TextWrapping="Wrap" />
-
-                                <TextBlock Classes="muted" Text="{Binding DirectionText}" />
-
-                                <TextBlock Classes="label" Text="{Binding StateText}" />
-
-                                <ProgressBar
-                                    Height="8"
-                                    Maximum="100"
-                                    Minimum="0"
-                                    Value="{Binding Progress}" />
-
-                                <TextBlock Classes="muted" Text="{Binding ProgressText}" />
-
+                                    Classes="transferState"
+                                    Classes.completed="{Binding IsCompleted}"
+                                    Classes.paused="{Binding IsPaused}"
+                                    Classes.failed="{Binding IsFailed}"
+                                    FontWeight="Bold"
+                                    Text="{Binding StateSymbol}" />
                                 <TextBlock
-                                    Classes="muted"
-                                    Text="{Binding ErrorText}"
-                                    TextWrapping="Wrap" />
-                                <StackPanel IsVisible="{Binding IsPaused}" Spacing="8">
-                                    <TextBlock Classes="label" Text="{Binding PauseTimeText, StringFormat='До завершения ожидания: {0}'}" />
-                                    <TextBlock Classes="muted" Text="Ожидается восстановление связи. Прогресс сохранён." />
-
-                                    <Button
-                                        HorizontalAlignment="Stretch"
-                                        Classes="danger"
-                                        Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).FileTransfers.CancelPausedTransferCommand}"
-                                        CommandParameter="{Binding}"
-                                        Content="Отменить передачу" />
-                                </StackPanel>
+                                    Classes="label transferState"
+                                    Classes.completed="{Binding IsCompleted}"
+                                    Classes.paused="{Binding IsPaused}"
+                                    Classes.failed="{Binding IsFailed}"
+                                    Text="{Binding StateText}" />
                             </StackPanel>
-                        </Border>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-        </ScrollViewer>
-    </Grid>
+
+                            <ProgressBar
+                                Height="8"
+                                Maximum="100"
+                                Minimum="0"
+                                Value="{Binding Progress}" />
+
+                            <TextBlock Classes="muted" Text="{Binding ProgressText}" />
+
+                            <TextBlock
+                                Classes="error"
+                                IsVisible="{Binding IsFailed}"
+                                Text="{Binding ErrorText}"
+                                TextWrapping="Wrap" />
+                            <StackPanel IsVisible="{Binding IsPaused}" Spacing="8">
+                                <TextBlock Classes="label" Text="{Binding PauseTimeText, StringFormat='До завершения ожидания: {0}'}" />
+                                <TextBlock Classes="muted" Text="Ожидается восстановление связи. Прогресс сохранён." />
+
+                                <Button
+                                    HorizontalAlignment="Stretch"
+                                    Classes="danger"
+                                    Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).FileTransfers.CancelPausedTransferCommand}"
+                                    CommandParameter="{Binding}"
+                                    Content="Отменить передачу" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </StackPanel>
 </UserControl>

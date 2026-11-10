@@ -34,6 +34,7 @@ public partial class TextViewModel : ObservableObject
     public partial string TextToSend { get; set; } = string.Empty;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasMessage))]
     public partial string TextMessage { get; set; } = string.Empty;
 
     public int TextByteCount => Encoding.UTF8.GetByteCount(TextToSend);
@@ -42,6 +43,8 @@ public partial class TextViewModel : ObservableObject
         TextByteCount > ProtocolConstants.ClipboardTextSize
             ? "Текст превышает ограничение 1000 байт в UTF-8."
             : string.Empty;
+
+    public bool HasMessage => !string.IsNullOrEmpty(TextMessage);
 
     public ObservableCollection<ReceivedText> ReceivedTexts { get; } = [];
 

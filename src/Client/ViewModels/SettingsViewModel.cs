@@ -137,6 +137,17 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private void RestoreConnection()
+    {
+        IsConnectionBroken = false;
+
+        if (LossRate == 100)
+        {
+            LossRate = 0;
+        }
+    }
+
+    [RelayCommand]
     private void SaveSettings()
     {
         if (!Validate())

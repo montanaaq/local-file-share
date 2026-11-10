@@ -97,6 +97,7 @@ public partial class MainWindow : Window
             DataContext is MainViewModel vm
             && vm.SelectedDevice is not null
             && vm.IsNetworkActive
+            && !vm.FileTransfers.SendFileCommand.IsRunning
             && vm.StartSearchCommand.IsRunning
             && !vm.StartSearchCommand.IsCancellationRequested
             && e.DataTransfer.Contains(DataFormat.File);
@@ -126,6 +127,11 @@ public partial class MainWindow : Window
         e.DragEffects = DragDropEffects.None;
 
         if (DataContext is not MainViewModel vm)
+        {
+            return;
+        }
+
+        if (vm.FileTransfers.SendFileCommand.IsRunning)
         {
             return;
         }

@@ -6,116 +6,105 @@
     x:DataType="vm:MainViewModel">
     <StackPanel Spacing="18">
         <TextBlock Classes="title" Text="Настройки" />
-        <TextBlock
-            Margin="0,8,0,0"
-            Classes="label"
-            Text="Устройство" />
+        <TextBlock Classes="label" Text="Устройство" />
         <Border Classes="card">
             <StackPanel Spacing="8">
-                <TextBlock Classes="muted" Text="Имя" />
+                <TextBlock Classes="muted" Text="Имя устройства" />
                 <TextBox
                     IsEnabled="{Binding !StartSearchCommand.IsRunning}"
                     PlaceholderText="Имя устройства"
                     Text="{Binding Settings.DeviceName, Mode=TwoWay}" />
-                <TextBlock
-                    Classes="error"
-                    IsVisible="{Binding Settings.HasDeviceNameError}"
-                    Text="{Binding Settings.DeviceNameError}" />
-            </StackPanel>
-        </Border>
-        <Border Classes="card">
-            <StackPanel Spacing="8">
-                <TextBlock Classes="muted" Text="UDP-порт" />
+                <TextBlock Classes="error" IsVisible="{Binding Settings.HasDeviceNameError}" Text="{Binding Settings.DeviceNameError}" />
+                <TextBlock Classes="muted" Text="Порт подключения" />
                 <NumericUpDown
                     IsEnabled="{Binding !StartSearchCommand.IsRunning}"
                     Maximum="65535"
                     Minimum="1"
                     Value="{Binding Settings.LocalPort, Mode=TwoWay}" />
-                <TextBlock
-                    Classes="error"
-                    IsVisible="{Binding Settings.HasLocalPortError}"
-                    Text="{Binding Settings.LocalPortError}" />
+                <TextBlock Classes="error" IsVisible="{Binding Settings.HasLocalPortError}" Text="{Binding Settings.LocalPortError}" />
+                <TextBlock Classes="muted" Text="Для изменения имени или порта остановите сессию. Остановка завершает текущие передачи." />
+                <Button
+                    HorizontalAlignment="Stretch"
+                    Classes="secondary"
+                    Command="{Binding StartSearchCancelCommand}"
+                    Content="Остановить сессию"
+                    IsVisible="{Binding StartSearchCommand.IsRunning}" />
+                <Button
+                    HorizontalAlignment="Stretch"
+                    Classes="secondary"
+                    Command="{Binding StartSearchCommand}"
+                    Content="Запустить сессию"
+                    IsVisible="{Binding !StartSearchCommand.IsRunning}" />
             </StackPanel>
         </Border>
-        <Button
-            HorizontalAlignment="Stretch"
-            Classes="primary"
-            Command="{Binding Settings.SaveSettingsCommand}"
-            Content="Сохранить настройки" />
-        <TextBlock Classes="muted" Text="{Binding Settings.SettingsMessage}" />
         <Border Classes="card">
             <Grid ColumnDefinitions="*,Auto">
-                <StackPanel Spacing="5">
+                <StackPanel Margin="0,0,12,0" Spacing="5">
                     <TextBlock Classes="label" Text="Обмен с устройствами" />
-                    <TextBlock
-                        Classes="muted"
-                        Text="Выключение обмена сохраняет незавершённые передачи в паузе."
-                        TextWrapping="Wrap" />
+                    <TextBlock Classes="muted" Text="Применяется сразу. Выключение переводит незавершённые передачи в паузу и сохраняет прогресс." />
                 </StackPanel>
                 <ToggleSwitch
                     Grid.Column="1"
+                    AutomationProperties.Name="Обмен с устройствами"
                     IsChecked="{Binding Settings.IsExchangeEnabled, Mode=TwoWay}"
                     OffContent=""
                     OnContent="" />
             </Grid>
         </Border>
-        <Button
-            Command="{Binding StartSearchCommand}"
-            Content="Запустить сессию"
-            IsVisible="{Binding !StartSearchCommand.IsRunning}" />
-        <Button
-            Command="{Binding StartSearchCancelCommand}"
-            Content="Остановить сессию и изменить имя или порт"
-            IsVisible="{Binding StartSearchCommand.IsRunning}" />
-        <TextBlock
-            Classes="muted"
-            Text="Остановка сессии завершает текущие передачи. Для временного перерыва выключите обмен переключателем выше. Сохраните настройки для следующего запуска."
-            TextWrapping="Wrap" />
-        <TextBlock
-            Margin="0,8,0,0"
-            Classes="label"
-            Text="Тестирование сети" />
-        <Border Classes="card">
-            <StackPanel Spacing="10">
-                <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Classes="label" Text="Потери пакетов при отправке и приёме" />
-                    <TextBlock
-                        Grid.Column="1"
-                        Foreground="#3869ED"
-                        Text="{Binding Settings.LossRate, StringFormat='{}{0}%'}" />
-                </Grid>
-                <Slider
-                    IsEnabled="{Binding !Settings.IsConnectionBroken}"
-                    IsSnapToTickEnabled="True"
-                    Maximum="100"
-                    Minimum="0"
-                    TickFrequency="1"
-                    Value="{Binding Settings.LossRate, Mode=TwoWay}" />
-                <Grid ColumnDefinitions="*,*">
-                    <TextBlock Classes="muted" Text="0%" />
-                    <TextBlock
-                        Grid.Column="1"
-                        HorizontalAlignment="Right"
-                        Classes="muted"
-                        Text="100%" />
-                </Grid>
-            </StackPanel>
-        </Border>
-        <Border Classes="card">
-            <Grid ColumnDefinitions="*,Auto">
-                <StackPanel Spacing="5">
-                    <TextBlock Classes="label" Text="Обрыв связи" />
-                    <TextBlock
-                        Classes="muted"
-                        Text="Устанавливает потери пакетов на 100%. При выключении возвращает прежнее значение."
-                        TextWrapping="Wrap" />
+        <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Header="Подключиться по адресу">
+            <Border Classes="card">
+                <StackPanel Spacing="10">
+                    <TextBlock Classes="muted" Text="Используйте адрес, если устройство не нашлось автоматически. Оба устройства должны быть доступны в одной локальной сети." />
+                    <TextBlock Classes="label" Text="IPv4-адрес и порт" />
+                    <TextBox AutomationProperties.Name="IPv4-адрес и порт" PlaceholderText="Например, 192.168.1.10:5000" Text="{Binding ManualAddress, Mode=TwoWay}" />
+                    <Button HorizontalAlignment="Stretch" Classes="secondary" Command="{Binding AddManualAddressCommand}" Content="Добавить устройство" />
+                    <TextBlock Classes="error" IsVisible="{Binding HasManualAddressError}" Text="{Binding ManualAddressError}" />
+                    <TextBlock Classes="muted" Text="{Binding ManualAddressMessage}" />
+                    <TextBlock Classes="muted" Text="Добавленные адреса действуют до закрытия приложения." />
                 </StackPanel>
-                <ToggleSwitch
-                    Grid.Column="1"
-                    IsChecked="{Binding Settings.IsConnectionBroken, Mode=TwoWay}"
-                    OffContent=""
-                    OnContent="" />
-            </Grid>
-        </Border>
+            </Border>
+        </Expander>
+        <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Header="Проверка сети">
+            <Border Classes="card">
+                <StackPanel Spacing="16">
+                    <TextBlock Classes="muted" Text="Для проверки паузы и возобновления передачи. Изменения применяются сразу." />
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Margin="0,0,12,0" Classes="label" Text="Потери при отправке и приёме" TextWrapping="Wrap" />
+                        <TextBlock Grid.Column="1" Text="{Binding Settings.LossRate, StringFormat='{}{0}%'}" />
+                    </Grid>
+                    <Slider
+                        AutomationProperties.Name="Потери пакетов, проценты"
+                        IsEnabled="{Binding !Settings.IsConnectionBroken}"
+                        IsSnapToTickEnabled="True"
+                        Maximum="100"
+                        Minimum="0"
+                        TickFrequency="1"
+                        Value="{Binding Settings.LossRate, Mode=TwoWay}" />
+                    <Grid ColumnDefinitions="*,*">
+                        <TextBlock Classes="muted" Text="0%" />
+                        <TextBlock Grid.Column="1" HorizontalAlignment="Right" Classes="muted" Text="100%" />
+                    </Grid>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Margin="0,0,12,0" Spacing="5">
+                            <TextBlock Classes="label" Text="Имитация обрыва" />
+                            <TextBlock Classes="muted" Text="Устанавливает потери на 100%. При выключении возвращает прежнее значение." />
+                        </StackPanel>
+                        <ToggleSwitch
+                            Grid.Column="1"
+                            AutomationProperties.Name="Имитация обрыва связи"
+                            IsChecked="{Binding Settings.IsConnectionBroken, Mode=TwoWay}"
+                            OffContent=""
+                            OnContent="" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </Expander>
+        <TextBlock Classes="muted" Text="Сохранение запоминает имя, порт, включение обмена и выбранные потери для следующего запуска. Имитация обрыва действует временно." />
+        <Button
+            HorizontalAlignment="Stretch"
+            Classes="primary"
+            Command="{Binding Settings.SaveSettingsCommand}"
+            Content="Сохранить для следующего запуска" />
+        <TextBlock Classes="muted" Text="{Binding Settings.SettingsMessage}" />
     </StackPanel>
 </UserControl>
