@@ -1,6 +1,7 @@
 using System;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -50,6 +51,28 @@ public partial class TransfersViewModel : ObservableObject
 
     public ObservableCollection<TransferItem> Transfers { get; } = [];
 
+    public ObservableCollection<TransferItem> VisibleTransfers { get; } = [];
+
+    public ObservableCollection<string> SenderNames { get; } = ["Все отправители"];
+
+    [ObservableProperty]
+    public partial int SelectedSenderIndex { get; set; }
+
+    partial void OnSelectedSenderIndexChanged(int value)
+    {
+        VisibleTransfers.Clear();
+
+        foreach (var item in Transfers.Where(MatchesSender))
+        {
+            VisibleTransfers.Add(item);
+        }
+    }
+
+    private bool MatchesSender(TransferItem item) =>
+        SelectedSenderIndex <= 0
+        || SelectedSenderIndex >= SenderNames.Count
+        || item.SenderName == SenderNames[SelectedSenderIndex];
+
     public bool HasTransfers => Transfers.Count > 0;
 
     public bool HasSelectedFile => SelectedFilePath is not null;
@@ -58,7 +81,7 @@ public partial class TransfersViewModel : ObservableObject
     public string SelectedFileSizeText => SelectedFileSize.ToFileSize();
 
     public string FileSizeHint =>
-        $"Выберите один файл до {ProtocolConstants.MaxFileSize / 1024 / 1024} МиБ";
+        $"Выберите один файл до {ProtocolConstants.MaxFileSize / 1024 / 1024} МБ";
 
     /// <summary>
     /// Меняет сессию файлового UI, согласуя подписки и таймер обновления паузы.
@@ -70,10 +93,7 @@ public partial class TransfersViewModel : ObservableObject
         _pauseRefresh?.Dispose();
         _pauseRefresh = null;
 
-        if (_peerService is not null)
-        {
-            _peerService.Transfers.TransferChanged -= OnTransferChanged;
-        }
+        _peerService?.Transfers.TransferChanged -= OnTransferChanged;
 
         _peerService = service;
         _sessionToken = token;
@@ -83,6 +103,10 @@ public partial class TransfersViewModel : ObservableObject
         if (service is not null)
         {
             Transfers.Clear();
+            VisibleTransfers.Clear();
+            SenderNames.Clear();
+            SenderNames.Add("Все отправители");
+            SelectedSenderIndex = 0;
             OnPropertyChanged(nameof(HasTransfers));
             ClearSelectedFile();
 
@@ -332,18 +356,37 @@ public partial class TransfersViewModel : ObservableObject
                 NetworkMessage = GetTransferMessage(transfer);
             }
 
-            var item = new TransferItem(transfer);
-
             for (int index = 0; index < Transfers.Count; index++)
             {
-                if (Transfers[index].Key == item.Key)
+                if (Transfers[index].Key == transfer.Key)
                 {
-                    Transfers[index] = item;
+                    UpdateTransfer(index, Transfers[index] with { Transfer = transfer });
                     return;
                 }
             }
 
-            Transfers.Add(item);
+            string senderName =
+                transfer.Direction == TransferDirection.Outgoing
+                    ? "Вы"
+                    : service
+                        .GetPeers()
+                        .FirstOrDefault(peer => peer.DeviceId == transfer.PeerDeviceId)
+                        ?.Name
+                        ?? "Неизвестное устройство";
+            var item = new TransferItem(transfer, senderName);
+
+            if (!SenderNames.Skip(1).Contains(senderName))
+            {
+                SenderNames.Add(senderName);
+            }
+
+            Transfers.Insert(0, item);
+
+            if (MatchesSender(item))
+            {
+                VisibleTransfers.Insert(0, item);
+            }
+
             OnPropertyChanged(nameof(HasTransfers));
         });
     }
@@ -367,10 +410,23 @@ public partial class TransfersViewModel : ObservableObject
             }
 
             var snapshot = service.Transfers.GetTransfer(item.Key);
-            Transfers[index] = new TransferItem(snapshot);
+            UpdateTransfer(index, item with { Transfer = snapshot });
         }
 
         return true;
+    }
+
+    private void UpdateTransfer(int index, TransferItem item)
+    {
+        var previous = Transfers[index];
+        Transfers[index] = item;
+
+        int visibleIndex = VisibleTransfers.IndexOf(previous);
+
+        if (visibleIndex >= 0)
+        {
+            VisibleTransfers[visibleIndex] = item;
+        }
     }
 
     private bool CanSendFile()

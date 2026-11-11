@@ -12,8 +12,8 @@ internal static class FileSizeExtensions
             : 1;
 
         string unit =
-            size >= 1024 * 1024 ? "МиБ"
-            : size >= 1024 ? "КиБ"
+            size >= 1024 * 1024 ? "МБ"
+            : size >= 1024 ? "КБ"
             : "Б";
 
         string value = (size / divisor).ToString(

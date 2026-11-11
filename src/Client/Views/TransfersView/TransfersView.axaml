@@ -8,13 +8,21 @@
     x:DataType="vm:MainViewModel">
     <StackPanel Spacing="20">
         <TextBlock Classes="title" Text="Передачи" />
+        <StackPanel IsVisible="{Binding FileTransfers.HasTransfers}" Spacing="8">
+            <TextBlock Classes="label" Text="Отправитель" />
+            <ComboBox
+                HorizontalAlignment="Stretch"
+                AutomationProperties.Name="Фильтр по отправителю"
+                ItemsSource="{Binding FileTransfers.SenderNames}"
+                SelectedIndex="{Binding FileTransfers.SelectedSenderIndex, Mode=TwoWay}" />
+        </StackPanel>
         <Border Classes="card" IsVisible="{Binding !FileTransfers.HasTransfers}">
             <StackPanel Spacing="8">
                 <TextBlock Classes="label" Text="Передач пока нет" />
                 <TextBlock Classes="muted" Text="Здесь появятся отправленные и полученные файлы: прогресс, результат и причина ошибки." />
             </StackPanel>
         </Border>
-        <ItemsControl ItemsSource="{Binding FileTransfers.Transfers}">
+        <ItemsControl ItemsSource="{Binding FileTransfers.VisibleTransfers}">
             <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="client:TransferItem">
                     <Border Margin="0,0,0,12" Classes="card">
@@ -25,6 +33,7 @@
                                 TextWrapping="Wrap" />
 
                             <TextBlock Classes="muted" Text="{Binding DirectionText}" />
+                            <TextBlock Classes="muted" Text="{Binding SenderName, StringFormat='От: {0}'}" />
 
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <TextBlock

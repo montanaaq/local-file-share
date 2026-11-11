@@ -46,14 +46,23 @@
             <Setter Property="Foreground" Value="#946200" />
             <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
+        <Style Selector="Border.sessionStatus">
+            <Setter Property="Background" Value="#FEECEB" />
+        </Style>
+        <Style Selector="Border.sessionStatus.active">
+            <Setter Property="Background" Value="#DDF3E5" />
+        </Style>
+        <Style Selector="Border.sessionStatus.interrupted">
+            <Setter Property="Background" Value="#FEECEB" />
+        </Style>
         <Style Selector="TextBlock.sessionStatus">
-            <Setter Property="Foreground" Value="#60748C" />
+            <Setter Property="Foreground" Value="#B42318" />
         </Style>
         <Style Selector="TextBlock.sessionStatus.active">
             <Setter Property="Foreground" Value="#22865E" />
         </Style>
         <Style Selector="TextBlock.sessionStatus.interrupted">
-            <Setter Property="Foreground" Value="#946200" />
+            <Setter Property="Foreground" Value="#B42318" />
         </Style>
         <Style Selector="Ellipse.statusDot">
             <Setter Property="Fill" Value="#94A3B8" />

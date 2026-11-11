@@ -3,7 +3,7 @@ using Protocol.Transfers.Models;
 
 namespace Client;
 
-public sealed record TransferItem(FileTransfer Transfer)
+public sealed record TransferItem(FileTransfer Transfer, string SenderName)
 {
     public TransferKey Key => Transfer.Key;
 

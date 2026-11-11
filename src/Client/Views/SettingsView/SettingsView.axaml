@@ -14,27 +14,21 @@
                     IsEnabled="{Binding !StartSearchCommand.IsRunning}"
                     PlaceholderText="Имя устройства"
                     Text="{Binding Settings.DeviceName, Mode=TwoWay}" />
-                <TextBlock Classes="error" IsVisible="{Binding Settings.HasDeviceNameError}" Text="{Binding Settings.DeviceNameError}" />
+                <TextBlock
+                    Classes="error"
+                    IsVisible="{Binding Settings.HasDeviceNameError}"
+                    Text="{Binding Settings.DeviceNameError}" />
                 <TextBlock Classes="muted" Text="Порт подключения" />
                 <NumericUpDown
                     IsEnabled="{Binding !StartSearchCommand.IsRunning}"
                     Maximum="65535"
                     Minimum="1"
                     Value="{Binding Settings.LocalPort, Mode=TwoWay}" />
-                <TextBlock Classes="error" IsVisible="{Binding Settings.HasLocalPortError}" Text="{Binding Settings.LocalPortError}" />
+                <TextBlock
+                    Classes="error"
+                    IsVisible="{Binding Settings.HasLocalPortError}"
+                    Text="{Binding Settings.LocalPortError}" />
                 <TextBlock Classes="muted" Text="Для изменения имени или порта остановите сессию. Остановка завершает текущие передачи." />
-                <Button
-                    HorizontalAlignment="Stretch"
-                    Classes="secondary"
-                    Command="{Binding StartSearchCancelCommand}"
-                    Content="Остановить сессию"
-                    IsVisible="{Binding StartSearchCommand.IsRunning}" />
-                <Button
-                    HorizontalAlignment="Stretch"
-                    Classes="secondary"
-                    Command="{Binding StartSearchCommand}"
-                    Content="Запустить сессию"
-                    IsVisible="{Binding !StartSearchCommand.IsRunning}" />
             </StackPanel>
         </Border>
         <Border Classes="card">
@@ -51,25 +45,45 @@
                     OnContent="" />
             </Grid>
         </Border>
-        <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Header="Подключиться по адресу">
+        <Expander
+            HorizontalAlignment="Stretch"
+            HorizontalContentAlignment="Stretch"
+            Header="Подключиться по адресу">
             <Border Classes="card">
                 <StackPanel Spacing="10">
                     <TextBlock Classes="muted" Text="Используйте адрес, если устройство не нашлось автоматически. Оба устройства должны быть доступны в одной локальной сети." />
                     <TextBlock Classes="label" Text="IPv4-адрес и порт" />
-                    <TextBox AutomationProperties.Name="IPv4-адрес и порт" PlaceholderText="Например, 192.168.1.10:5000" Text="{Binding ManualAddress, Mode=TwoWay}" />
-                    <Button HorizontalAlignment="Stretch" Classes="secondary" Command="{Binding AddManualAddressCommand}" Content="Добавить устройство" />
-                    <TextBlock Classes="error" IsVisible="{Binding HasManualAddressError}" Text="{Binding ManualAddressError}" />
+                    <TextBox
+                        AutomationProperties.Name="IPv4-адрес и порт"
+                        PlaceholderText="Например, 192.168.1.10:5000"
+                        Text="{Binding ManualAddress, Mode=TwoWay}" />
+                    <Button
+                        HorizontalAlignment="Stretch"
+                        Classes="secondary"
+                        Command="{Binding AddManualAddressCommand}"
+                        Content="Добавить устройство" />
+                    <TextBlock
+                        Classes="error"
+                        IsVisible="{Binding HasManualAddressError}"
+                        Text="{Binding ManualAddressError}" />
                     <TextBlock Classes="muted" Text="{Binding ManualAddressMessage}" />
                     <TextBlock Classes="muted" Text="Добавленные адреса действуют до закрытия приложения." />
                 </StackPanel>
             </Border>
         </Expander>
-        <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Header="Проверка сети">
+        <Expander
+            HorizontalAlignment="Stretch"
+            HorizontalContentAlignment="Stretch"
+            Header="Проверка сети">
             <Border Classes="card">
                 <StackPanel Spacing="16">
                     <TextBlock Classes="muted" Text="Для проверки паузы и возобновления передачи. Изменения применяются сразу." />
                     <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Margin="0,0,12,0" Classes="label" Text="Потери при отправке и приёме" TextWrapping="Wrap" />
+                        <TextBlock
+                            Margin="0,0,12,0"
+                            Classes="label"
+                            Text="Потери при отправке и приёме"
+                            TextWrapping="Wrap" />
                         <TextBlock Grid.Column="1" Text="{Binding Settings.LossRate, StringFormat='{}{0}%'}" />
                     </Grid>
                     <Slider
@@ -82,7 +96,11 @@
                         Value="{Binding Settings.LossRate, Mode=TwoWay}" />
                     <Grid ColumnDefinitions="*,*">
                         <TextBlock Classes="muted" Text="0%" />
-                        <TextBlock Grid.Column="1" HorizontalAlignment="Right" Classes="muted" Text="100%" />
+                        <TextBlock
+                            Grid.Column="1"
+                            HorizontalAlignment="Right"
+                            Classes="muted"
+                            Text="100%" />
                     </Grid>
                     <Grid ColumnDefinitions="*,Auto">
                         <StackPanel Margin="0,0,12,0" Spacing="5">
@@ -99,7 +117,6 @@
                 </StackPanel>
             </Border>
         </Expander>
-        <TextBlock Classes="muted" Text="Сохранение запоминает имя, порт, включение обмена и выбранные потери для следующего запуска. Имитация обрыва действует временно." />
         <Button
             HorizontalAlignment="Stretch"
             Classes="primary"

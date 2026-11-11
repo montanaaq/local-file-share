@@ -68,7 +68,7 @@ public partial class MainViewModel : ObservableObject
     public bool IsConnectionInterrupted => IsNetworkActive && Settings.LossRate == 100;
 
     public string SessionStatus =>
-        _peerService is null ? "Сессия остановлена"
+        _peerService is null ? "Обмен выключен"
         : !IsNetworkActive ? "Обмен выключен"
         : IsConnectionInterrupted ? "Имитация обрыва"
         : "Обмен включён";
