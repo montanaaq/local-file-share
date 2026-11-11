@@ -27,7 +27,7 @@ public sealed class PeerService : IAsyncDisposable
     private Task? _runTask;
     private bool _disposed;
 
-    private readonly ExchangeService _exchange;
+    private readonly ExchangeService _exchangeService;
     private readonly NotificationDispatcher _notifications;
     private readonly TimeProvider _timeProvider;
 
@@ -56,7 +56,7 @@ public sealed class PeerService : IAsyncDisposable
         _timeProvider = timeProvider ?? TimeProvider.System;
         _notifications = new NotificationDispatcher();
 
-        _exchange = new ExchangeService(
+        _exchangeService = new ExchangeService(
             _transport,
             DeviceId,
             ResolveEndpoint,
@@ -77,15 +77,15 @@ public sealed class PeerService : IAsyncDisposable
         set => _transport.LossRate = value;
     }
 
-    public ITransferSource Transfers => _exchange.Transfers;
-    public bool IsExchangeEnabled => _exchange.IsExchangeEnabled;
+    public ITransferSource Transfers => _exchangeService.Transfers;
+    public bool IsExchangeEnabled => _exchangeService.IsExchangeEnabled;
 
-    public TransportStatistics GetStatistics() => _exchange.GetStatistics();
+    public TransportStatistics GetStatistics() => _exchangeService.GetStatistics();
 
     public event Action<Guid, string>? TextReceived
     {
-        add => _exchange.TextReceived += value;
-        remove => _exchange.TextReceived -= value;
+        add => _exchangeService.TextReceived += value;
+        remove => _exchangeService.TextReceived -= value;
     }
 
     /// <summary>
@@ -95,7 +95,7 @@ public sealed class PeerService : IAsyncDisposable
     public void SetExchangeEnabled(bool enabled)
     {
         ThrowIfDisposed();
-        _exchange.SetExchangeEnabled(enabled);
+        _exchangeService.SetExchangeEnabled(enabled);
     }
 
     /// <summary>
@@ -104,7 +104,7 @@ public sealed class PeerService : IAsyncDisposable
     /// <param name="key">Идентификаторы удалённого устройства и файла.</param>
     /// <returns>Снимок отменённой передачи.</returns>
     public FileTransfer CancelPausedTransfer(TransferKey key) =>
-        _exchange.CancelPausedTransfer(key);
+        _exchangeService.CancelPausedTransfer(key);
 
     /// <summary>
     /// Отправляет текст известному устройству и ожидает ACK.
@@ -116,7 +116,7 @@ public sealed class PeerService : IAsyncDisposable
     {
         ThrowIfDisposed();
 
-        return _exchange.SendTextAsync(peerDeviceId, text, ct);
+        return _exchangeService.SendTextAsync(peerDeviceId, text, ct);
     }
 
     /// <summary>Сообщает об ошибках подписчиков из фонового обработчика уведомлений.</summary>
@@ -134,19 +134,19 @@ public sealed class PeerService : IAsyncDisposable
         add
         {
             NetworkErrorHandlers += value;
-            _exchange.NetworkError += value;
+            _exchangeService.NetworkError += value;
         }
         remove
         {
             NetworkErrorHandlers -= value;
-            _exchange.NetworkError -= value;
+            _exchangeService.NetworkError -= value;
         }
     }
 
     public event Action<FileTransfer, Exception>? FileResultDeliveryFailed
     {
-        add => _exchange.FileResultDeliveryFailed += value;
-        remove => _exchange.FileResultDeliveryFailed -= value;
+        add => _exchangeService.FileResultDeliveryFailed += value;
+        remove => _exchangeService.FileResultDeliveryFailed -= value;
     }
 
     public Peer[] GetPeers()
@@ -213,7 +213,7 @@ public sealed class PeerService : IAsyncDisposable
         Guid peerDeviceId,
         string filePath,
         CancellationToken ct
-    ) => _exchange.OfferFileAsync(peerDeviceId, filePath, ct);
+    ) => _exchangeService.OfferFileAsync(peerDeviceId, filePath, ct);
 
     /// <summary>
     /// Принимает или отклоняет входящее предложение и отправляет решение. Приём файла продолжается в фоне.
@@ -228,7 +228,7 @@ public sealed class PeerService : IAsyncDisposable
         bool accepted,
         string directory,
         CancellationToken ct
-    ) => _exchange.AnswerFileOfferAsync(key, accepted, directory, ct);
+    ) => _exchangeService.AnswerFileOfferAsync(key, accepted, directory, ct);
 
     private IPEndPoint ResolveEndpoint(Guid peerDeviceId)
     {
@@ -245,7 +245,7 @@ public sealed class PeerService : IAsyncDisposable
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct, _stopCts.Token);
         var receiving = ReceiveLoopAsync(cts.Token);
         var monitoring = MonitorAsync(cts.Token);
-        var maintaining = _exchange.MaintainAsync(cts.Token);
+        var maintaining = _exchangeService.MaintainAsync(cts.Token);
 
         try
         {
@@ -265,7 +265,9 @@ public sealed class PeerService : IAsyncDisposable
             catch (OperationCanceledException) when (cts.IsCancellationRequested) { }
             finally
             {
-                await _exchange.WaitForPendingOperationsAsync(cts.Token).ConfigureAwait(false);
+                await _exchangeService
+                    .WaitForPendingOperationsAsync(cts.Token)
+                    .ConfigureAwait(false);
             }
         }
     }
@@ -298,7 +300,7 @@ public sealed class PeerService : IAsyncDisposable
 
                 if (packet.Type is MessageType.Discover)
                 {
-                    if (_exchange.TryGetExchangeToken(out var exchangeToken))
+                    if (_exchangeService.TryGetExchangeToken(out var exchangeToken))
                     {
                         try
                         {
@@ -330,7 +332,7 @@ public sealed class PeerService : IAsyncDisposable
 
             if (packet.Type != MessageType.Heartbeat)
             {
-                await _exchange
+                await _exchangeService
                     .HandlePacketAsync(packet, from, senderDeviceId, ct)
                     .ConfigureAwait(false);
                 continue;
@@ -421,7 +423,7 @@ public sealed class PeerService : IAsyncDisposable
             long now = _timeProvider.GetTimestamp();
             UpdateAvailability(now);
 
-            if (!_exchange.TryGetExchangeToken(out var exchangeToken))
+            if (!_exchangeService.TryGetExchangeToken(out var exchangeToken))
             {
                 lastDiscover = null;
                 continue;
@@ -599,7 +601,7 @@ public sealed class PeerService : IAsyncDisposable
         {
             try
             {
-                await _exchange.DisposeAsync().ConfigureAwait(false);
+                await _exchangeService.DisposeAsync().ConfigureAwait(false);
             }
             finally
             {
