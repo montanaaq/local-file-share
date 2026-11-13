@@ -12,14 +12,46 @@
     MinHeight="560"
     x:DataType="vm:MainViewModel"
     Background="White"
-    Icon="/Assets/avalonia-logo.ico"
     RequestedThemeVariant="Light">
     <Window.Styles>
+        <Style Selector="SelectableTextBlock">
+            <Setter Property="FontSize" Value="16" />
+        </Style>
+        <Style Selector="TabControl.exchangeTabs > TabItem">
+            <Setter Property="FontFamily" Value="avares://Avalonia.Fonts.Inter/Assets#Inter" />
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="#60748C" />
+            <Setter Property="Padding" Value="20,10" />
+            <Setter Property="MinHeight" Value="44" />
+            <Setter Property="CornerRadius" Value="{DynamicResource ControlCornerRadius}" />
+        </Style>
+        <Style Selector="TabControl.exchangeTabs > TabItem:selected">
+            <Setter Property="Background" Value="#E9EFFF" />
+            <Setter Property="Foreground" Value="#3869ED" />
+        </Style>
+        <Style Selector="TabControl.exchangeTabs > TabItem:pointerover /template/ Border#PART_LayoutRoot">
+            <Setter Property="Background" Value="#EDF3F9" />
+            <Setter Property="TextElement.Foreground" Value="#3D607E" />
+        </Style>
+        <Style Selector="TabControl.exchangeTabs > TabItem:selected:pointerover /template/ Border#PART_LayoutRoot">
+            <Setter Property="Background" Value="#DDE8FF" />
+            <Setter Property="TextElement.Foreground" Value="#3869ED" />
+        </Style>
+        <Style Selector="TabControl.exchangeTabs > TabItem /template/ Border#PART_SelectedPipe">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
         <ContainerQuery Name="client" Query="min-width:752">
             <Style Selector="TextBlock">
                 <Setter Property="FontSize" Value="18" />
             </Style>
             <Style Selector="Button, TextBox, NumericUpDown">
+                <Setter Property="FontSize" Value="18" />
+            </Style>
+            <Style Selector="SelectableTextBlock">
+                <Setter Property="FontSize" Value="18" />
+            </Style>
+            <Style Selector="TabControl.exchangeTabs > TabItem">
                 <Setter Property="FontSize" Value="18" />
             </Style>
             <Style Selector="TextBlock.muted, TextBlock.caption">
@@ -135,6 +167,39 @@
                 MaxHeight="260"
                 HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Spacing="12">
+                    <Border
+                        Margin="0,12,0,0"
+                        Classes="incomingPanel"
+                        IsVisible="{Binding TextExchange.HasTextNotification}">
+                        <Grid ColumnDefinitions="*,Auto,Auto">
+                            <StackPanel Margin="0,0,12,0" Spacing="4">
+                                <TextBlock
+                                    Classes="label"
+                                    Text="{Binding TextExchange.TextNotificationMessage}"
+                                    TextWrapping="Wrap" />
+                                <TextBlock
+                                    Classes="muted"
+                                    Text="{Binding TextExchange.TextNotification.SenderName, StringFormat='От: {0}'}" />
+                            </StackPanel>
+                            <Button
+                                Grid.Column="1"
+                                VerticalAlignment="Center"
+                                Classes="primary"
+                                Command="{Binding TextExchange.CopyReceivedTextCommand}"
+                                CommandParameter="{Binding TextExchange.TextNotification}"
+                                Content="Копировать" />
+                            <Button
+                                Grid.Column="2"
+                                Margin="8,0,0,0"
+                                Padding="8"
+                                VerticalAlignment="Center"
+                                AutomationProperties.Name="Закрыть уведомление"
+                                Classes="secondary"
+                                Command="{Binding TextExchange.DismissTextNotificationCommand}"
+                                Content="×"
+                                ToolTip.Tip="Закрыть уведомление" />
+                        </Grid>
+                    </Border>
                     <Border
                         Margin="0,12,0,0"
                         Classes="notice"
@@ -271,8 +336,8 @@
                                 Text="{Binding RecipientMessage}"
                                 TextWrapping="Wrap" />
                         </StackPanel>
-                        <TabControl SelectedIndex="0">
-                            <TabItem Header="Файл">
+                        <TabControl Classes="exchangeTabs" SelectedIndex="0">
+                            <TabItem Header="Файлы">
                                 <StackPanel Margin="0,16,0,0" Spacing="16">
                                     <TextBlock
                                         Classes="muted"
@@ -360,42 +425,82 @@
                                 </StackPanel>
                             </TabItem>
                             <TabItem Header="{Binding TextExchange.ReceivedTexts.Count, StringFormat='Текст · {0}'}">
-                                <StackPanel Margin="0,16,0,0" Spacing="16">
-                                    <TextBlock Classes="label" Text="Текст" />
-                                    <TextBox
-                                        MinHeight="100"
-                                        MaxHeight="220"
-                                        AcceptsReturn="True"
-                                        PlaceholderText="Вставьте или напишите текст…"
-                                        Text="{Binding TextExchange.TextToSend, Mode=TwoWay}"
-                                        TextWrapping="Wrap" />
+                                <StackPanel Margin="0,12,0,0" Spacing="8">
+                                    <StackPanel.KeyBindings>
+                                        <KeyBinding Gesture="Ctrl+V" Command="{Binding TextExchange.PasteTextCommand}" />
+                                        <KeyBinding Gesture="Meta+V" Command="{Binding TextExchange.PasteTextCommand}" />
+                                    </StackPanel.KeyBindings>
+                                    <Button
+                                        MinHeight="120"
+                                        HorizontalAlignment="Stretch"
+                                        Classes="secondary"
+                                        Command="{Binding TextExchange.PasteTextCommand}"
+                                        IsVisible="{Binding !TextExchange.HasTextToSend}">
+                                        <TextBlock
+                                            Classes="muted"
+                                            Text="Вставьте текст из буфера обмена"
+                                            TextAlignment="Center" />
+                                    </Button>
+                                    <Border Classes="card" IsVisible="{Binding TextExchange.HasTextToSend}">
+                                        <StackPanel Spacing="8">
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <TextBlock Classes="label" Text="Предпросмотр" />
+                                                <TextBlock
+                                                    Grid.Column="1"
+                                                    Classes="muted"
+                                                    Text="{Binding TextExchange.TextSizeText}" />
+                                            </Grid>
+                                            <ScrollViewer
+                                                MaxHeight="220"
+                                                HorizontalScrollBarVisibility="Disabled">
+                                                <SelectableTextBlock
+                                                    Text="{Binding TextExchange.TextToSend}"
+                                                    TextWrapping="Wrap" />
+                                            </ScrollViewer>
+                                        </StackPanel>
+                                    </Border>
                                     <TextBlock
-                                        HorizontalAlignment="Right"
-                                        Classes="muted"
-                                        Text="{Binding TextExchange.TextByteCount, StringFormat='Размер: {0} / 1000 байт'}" />
-                                    <TextBlock
-                                        Foreground="#B42318"
-                                        Text="{Binding TextExchange.TextValidationMessage}"
-                                        TextWrapping="Wrap" />
-                                    <Grid ColumnDefinitions="*,12,*">
+                                        Classes="error"
+                                        IsVisible="{Binding TextExchange.HasTextValidationError}"
+                                        Text="{Binding TextExchange.TextValidationMessage}" />
+                                    <Grid ColumnDefinitions="Auto,Auto,*,Auto">
                                         <Button
-                                            HorizontalAlignment="Stretch"
                                             Classes="secondary"
                                             Command="{Binding TextExchange.PasteTextCommand}"
-                                            Content="Вставить текст" />
+                                            Content="Вставить" />
                                         <Button
-                                            Grid.Column="2"
-                                            HorizontalAlignment="Stretch"
+                                            Grid.Column="1"
+                                            Margin="8,0,0,0"
+                                            Classes="secondary"
+                                            Command="{Binding TextExchange.ClearTextCommand}"
+                                            Content="Очистить"
+                                            IsVisible="{Binding TextExchange.HasTextToSend}" />
+                                        <Button
+                                            Grid.Column="3"
                                             Classes="primary"
-                                            Command="{Binding TextExchange.SendTextCommand}"
-                                            Content="Отправить текст" />
+                                            Command="{Binding TextExchange.SendTextCommand}">
+                                            <Grid>
+                                                <TextBlock
+                                                    Foreground="{Binding $parent[Button].Foreground}"
+                                                    IsVisible="{Binding !TextExchange.SendTextCommand.IsRunning}"
+                                                    Text="Отправить" />
+                                                <TextBlock
+                                                    Foreground="{Binding $parent[Button].Foreground}"
+                                                    IsVisible="{Binding TextExchange.SendTextCommand.IsRunning}"
+                                                    Text="Отправляем…" />
+                                            </Grid>
+                                        </Button>
                                     </Grid>
                                     <TextBlock
                                         Classes="muted"
                                         IsVisible="{Binding TextExchange.HasMessage}"
                                         Text="{Binding TextExchange.TextMessage}"
                                         TextWrapping="Wrap" />
-                                    <TextBlock Classes="label" Text="Полученный текст" />
+                                    <TextBlock
+                                        Margin="0,12,0,4"
+                                        Classes="label"
+                                        IsVisible="{Binding !!TextExchange.ReceivedTexts.Count}"
+                                        Text="Полученный текст" />
                                     <ItemsControl ItemsSource="{Binding TextExchange.ReceivedTexts}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate x:DataType="client:ReceivedText">

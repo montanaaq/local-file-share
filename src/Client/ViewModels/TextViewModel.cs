@@ -29,7 +29,10 @@ public partial class TextViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(TextByteCount))]
+    [NotifyPropertyChangedFor(nameof(TextSizeText))]
     [NotifyPropertyChangedFor(nameof(TextValidationMessage))]
+    [NotifyPropertyChangedFor(nameof(HasTextToSend))]
+    [NotifyPropertyChangedFor(nameof(HasTextValidationError))]
     [NotifyCanExecuteChangedFor(nameof(SendTextCommand))]
     public partial string TextToSend { get; set; } = string.Empty;
 
@@ -37,7 +40,30 @@ public partial class TextViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(HasMessage))]
     public partial string TextMessage { get; set; } = string.Empty;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasTextNotification))]
+    public partial ReceivedText? TextNotification { get; set; }
+
+    [ObservableProperty]
+    public partial string TextNotificationMessage { get; set; } = string.Empty;
+
+    public bool HasTextNotification => TextNotification is not null;
+
+    [RelayCommand]
+    private void DismissTextNotification() => TextNotification = null;
+
     public int TextByteCount => Encoding.UTF8.GetByteCount(TextToSend);
+
+    public bool HasTextToSend => TextToSend.Length > 0;
+    public bool HasTextValidationError => TextByteCount > ProtocolConstants.ClipboardTextSize;
+    public string TextSizeText => $"{TextByteCount} / {ProtocolConstants.ClipboardTextSize} байт";
+
+    [RelayCommand]
+    private void ClearText()
+    {
+        TextToSend = string.Empty;
+        TextMessage = string.Empty;
+    }
 
     public string TextValidationMessage =>
         TextByteCount > ProtocolConstants.ClipboardTextSize
@@ -109,7 +135,7 @@ public partial class TextViewModel : ObservableObject
         && TextByteCount is > 0 and <= ProtocolConstants.ClipboardTextSize;
 
     /// <summary>
-    /// Отправляет показанный в поле текст выбранному устройству и ожидает ACK.
+    /// Отправляет текст предпросмотра выбранному устройству и ожидает ACK.
     /// Получатель и токен фиксируются до начала ожидания.
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanSendText))]
@@ -162,7 +188,10 @@ public partial class TextViewModel : ObservableObject
         {
             if (ReferenceEquals(service, _peerService))
             {
-                ReceivedTexts.Add(new ReceivedText(name, text));
+                var message = new ReceivedText(name, text);
+                ReceivedTexts.Insert(0, message);
+                TextNotificationMessage = "Получен текст";
+                TextNotification = message;
             }
         });
     }
@@ -178,6 +207,11 @@ public partial class TextViewModel : ObservableObject
         if (WriteClipboardTextAsync is null)
         {
             TextMessage = "Буфер обмена недоступен.";
+            if (ReferenceEquals(TextNotification, message))
+            {
+                TextNotificationMessage = TextMessage;
+            }
+
             return;
         }
 
@@ -195,6 +229,11 @@ public partial class TextViewModel : ObservableObject
             )
         {
             TextMessage = $"Не удалось скопировать текст: {exception.Message}";
+        }
+
+        if (ReferenceEquals(TextNotification, message))
+        {
+            TextNotificationMessage = TextMessage;
         }
     }
 }
