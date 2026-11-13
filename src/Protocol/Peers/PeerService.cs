@@ -251,7 +251,7 @@ public sealed class PeerService : IAsyncDisposable
         {
             var completed = await Task.WhenAny(receiving, monitoring, maintaining)
                 .ConfigureAwait(false);
-            await completed.ConfigureAwait(false);
+            await completed;
         }
         finally
         {

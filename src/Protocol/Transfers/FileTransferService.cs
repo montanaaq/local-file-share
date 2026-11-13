@@ -248,7 +248,6 @@ internal sealed class FileTransferService : IAsyncDisposable
 
         lock (_stateLock)
         {
-            // An operation may finish unwinding after the service has been disposed.
             if (_disposed)
             {
                 return;

@@ -169,7 +169,7 @@ internal sealed class ExchangeService : IAsyncDisposable
                 throw new InvalidOperationException("Network exchange is disabled");
             }
 
-            CancellationToken exchangeToken = _exchangeCts.Token;
+            var exchangeToken = _exchangeCts.Token;
 
             var operation = Task.Run(
                 async () =>
